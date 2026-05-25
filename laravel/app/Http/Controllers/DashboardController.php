@@ -1,0 +1,108 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Product;
+use App\Models\StockIn;
+use App\Models\Transaction;
+use App\Models\User;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+
+class DashboardController extends Controller
+{
+    public function __invoke(): View
+    {
+        if (! auth()->check()) {
+            return view('auth.login');
+        }
+
+        $today = Carbon::today();
+        $startOfMonth = Carbon::now()->startOfMonth();
+
+        $products = Product::orderBy('nama_barang')->get();
+        $activeProducts = Product::where('status', 'active')->orderBy('nama_barang')->get();
+        $transactions = Transaction::with(['user', 'details.product'])->latest()->limit(15)->get();
+        $latestTransaction = Transaction::with(['user', 'details.product'])->latest()->first();
+
+        $todayTransactionsQuery = Transaction::whereDate('created_at', $today);
+        $monthTransactionsQuery = Transaction::where('created_at', '>=', $startOfMonth);
+
+        $topProducts = Product::query()
+            ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
+            ->select('products.*', DB::raw('COALESCE(SUM(transaction_details.qty), 0) as sold_qty'))
+            ->groupBy(
+                'products.id',
+                'products.kode_barang',
+                'products.nama_barang',
+                'products.kategori',
+                'products.harga_modal',
+                'products.harga_jual',
+                'products.stok',
+                'products.satuan',
+                'products.status',
+                'products.created_at',
+                'products.updated_at'
+            )
+            ->orderByDesc('sold_qty')
+            ->limit(5)
+            ->get();
+
+        $salesChart = collect(range(6, 0))->map(function (int $daysAgo): array {
+            $date = Carbon::today()->subDays($daysAgo);
+
+            return [
+                'label' => $date->translatedFormat('D'),
+                'count' => Transaction::whereDate('created_at', $date)->count(),
+            ];
+        });
+
+        $cashiers = User::whereIn('role', ['admin', 'cashier'])
+            ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())], 'total')
+            ->orderBy('role')
+            ->orderBy('name')
+            ->get();
+
+        $monthlyProductSales = Product::query()
+            ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
+            ->leftJoin('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
+            ->where(function ($query) use ($startOfMonth) {
+                $query->whereNull('transactions.id')
+                    ->orWhere('transactions.created_at', '>=', $startOfMonth);
+            })
+            ->select('products.nama_barang', DB::raw('COALESCE(SUM(transaction_details.qty), 0) as qty'))
+            ->groupBy('products.id', 'products.nama_barang')
+            ->orderByDesc('qty')
+            ->limit(6)
+            ->get();
+
+        $stats = [
+            'total_stock' => Product::sum('stok'),
+            'today_transactions' => (clone $todayTransactionsQuery)->count(),
+            'today_income' => (clone $todayTransactionsQuery)->sum('total'),
+            'low_stock' => Product::where('stok', '<=', 20)->count(),
+            'month_transactions' => (clone $monthTransactionsQuery)->count(),
+            'month_income' => (clone $monthTransactionsQuery)->sum('total'),
+            'month_items' => DB::table('transaction_details')
+                ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
+                ->where('transactions.created_at', '>=', $startOfMonth)
+                ->sum('transaction_details.qty'),
+            'cash_income' => Transaction::where('created_at', '>=', $startOfMonth)->where('payment_type', 'cash')->sum('total'),
+            'transfer_income' => Transaction::where('created_at', '>=', $startOfMonth)->where('payment_type', 'transfer')->sum('total'),
+        ];
+
+        return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
+            'products' => $products,
+            'activeProducts' => $activeProducts,
+            'stockIns' => StockIn::with('product')->latest()->limit(10)->get(),
+            'transactions' => $transactions,
+            'latestTransaction' => $latestTransaction,
+            'topProducts' => $topProducts,
+            'salesChart' => $salesChart,
+            'cashiers' => $cashiers,
+            'monthlyProductSales' => $monthlyProductSales,
+            'stats' => $stats,
+        ]);
+    }
+}
