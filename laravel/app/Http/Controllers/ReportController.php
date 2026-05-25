@@ -11,7 +11,19 @@ class ReportController extends Controller
     public function exportCsv(): Response
     {
         $filename = 'laporan-penjualan-'.Carbon::now()->format('Ymd-His').'.csv';
-        $transactions = Transaction::with(['user', 'details.product'])->latest()->get();
+        $transactionsQuery = Transaction::with(['user', 'details.product'])->latest();
+        
+        $request = request();
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
+
+        if ($startDate && $endDate) {
+            $start = Carbon::parse($startDate)->startOfDay();
+            $end = Carbon::parse($endDate)->endOfDay();
+            $transactionsQuery->whereBetween('created_at', [$start, $end]);
+        }
+
+        $transactions = $transactionsQuery->get();
 
         $rows = [
             ['No Transaksi', 'Tanggal', 'Kasir', 'Produk', 'Qty', 'Harga', 'Subtotal', 'Metode', 'Total'],

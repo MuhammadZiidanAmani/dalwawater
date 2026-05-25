@@ -128,9 +128,30 @@
         </section>
 
         <section id="reports" class="page {{ $page === 'reports' ? 'active' : '' }}">
-            <div class="top"><div><p class="eyebrow">Laporan</p><h1>Rekap Penjualan</h1><p class="sub">Laporan harian, bulanan, metode pembayaran, dan export.</p></div><div class="actions"><a class="btn primary" href="{{ route('reports.export-csv') }}">@include('partials.icon', ['name' => 'download']) Export Excel CSV</a></div></div>
-            <div class="grid4"><article class="card"><p class="sub">Total transaksi bulan ini</p><div class="value">{{ $stats['month_transactions'] }}</div></article><article class="card"><p class="sub">Pendapatan bulan ini</p><div class="value">{{ $rupiah($stats['month_income']) }}</div></article><article class="card"><p class="sub">Produk terjual</p><div class="value">{{ $stats['month_items'] }}</div></article><article class="card"><p class="sub">Tunai / Transfer</p><div class="value"><small>{{ $rupiah($stats['cash_income']) }} / {{ $rupiah($stats['transfer_income']) }}</small></div></article></div>
-            <section class="panel"><h2>Transaksi Terbaru</h2><div class="table"><table><thead><tr><th>No</th><th>Tanggal</th><th>Kasir</th><th>Metode</th><th>Total</th><th>Nota</th></tr></thead><tbody>@foreach($transactions as $transaction)<tr><td>{{ $transaction->kode_transaksi }}</td><td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td><td>{{ $transaction->user->name }}</td><td>{{ $transaction->payment_type }}</td><td class="price">{{ $rupiah($transaction->total) }}</td><td><a class="btn soft" href="{{ route('transactions.receipt', $transaction) }}">Nota</a></td></tr>@endforeach</tbody></table></div></section>
+            <div class="top" style="flex-direction: column; align-items: flex-start; gap: 20px;">
+                <div style="display: flex; align-items: flex-start; justify-content: space-between; width: 100%;">
+                    <div><p class="eyebrow">Laporan</p><h1>Rekap Penjualan</h1><p class="sub">Laporan harian, bulanan, metode pembayaran, dan export.</p></div>
+                    <a class="btn primary" href="{{ route('reports.export-csv', ['start_date' => $startDate ?? '', 'end_date' => $endDate ?? '']) }}">@include('partials.icon', ['name' => 'download']) Export Excel CSV</a>
+                </div>
+                <div class="actions" style="width: 100%;">
+                    <form method="GET" action="/" style="display: flex; align-items: center; gap: 18px; width: 100%; padding-top: 8px; border-top: 1px solid var(--line);">
+                        <input type="hidden" name="page" value="reports">
+                        <span style="font-size: 16px; font-weight: 500; color: var(--text);">Waktu</span>
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <input type="date" name="start_date" value="{{ $startDate }}" required style="padding: 10px 12px; border: 1px solid var(--soft); border-radius: 6px; background: white; outline: none; font-family: inherit; font-size: 14px; color: var(--muted); cursor: pointer; min-width: 135px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);" onchange="this.form.submit()">
+                            <span style="font-weight: 500; color: var(--text);">-</span>
+                            <input type="date" name="end_date" value="{{ $endDate }}" required style="padding: 10px 12px; border: 1px solid var(--soft); border-radius: 6px; background: white; outline: none; font-family: inherit; font-size: 14px; color: var(--muted); cursor: pointer; min-width: 135px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);" onchange="this.form.submit()">
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="grid4">
+                <article class="card"><p class="sub">Total transaksi</p><div class="value">{{ $reportStats['transactions'] }}</div></article>
+                <article class="card"><p class="sub">Pendapatan</p><div class="value">{{ $rupiah($reportStats['income']) }}</div></article>
+                <article class="card"><p class="sub">Produk terjual</p><div class="value">{{ $reportStats['items'] ?? 0 }}</div></article>
+                <article class="card"><p class="sub">Tunai / Transfer</p><div class="value"><small>{{ $rupiah($reportStats['cash_income']) }} / {{ $rupiah($reportStats['transfer_income']) }}</small></div></article>
+            </div>
+            <section class="panel"><h2>Transaksi Terbaru</h2><div class="table"><table><thead><tr><th>No</th><th>Tanggal</th><th>Kasir</th><th>Metode</th><th>Total</th><th>Nota</th></tr></thead><tbody>@foreach($reportTransactions as $transaction)<tr><td>{{ $transaction->kode_transaksi }}</td><td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td><td>{{ $transaction->user->name }}</td><td>{{ $transaction->payment_type }}</td><td class="price">{{ $rupiah($transaction->total) }}</td><td><a class="btn soft" href="{{ route('transactions.receipt', $transaction) }}">Nota</a></td></tr>@endforeach</tbody></table></div></section>
         </section>
         @endif
 

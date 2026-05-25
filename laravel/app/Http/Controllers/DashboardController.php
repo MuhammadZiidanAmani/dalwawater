@@ -10,9 +10,11 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
+use Illuminate\Http\Request;
+
 class DashboardController extends Controller
 {
-    public function __invoke(): View
+    public function __invoke(Request $request): View
     {
         if (! auth()->check()) {
             return view('auth.login');
@@ -92,6 +94,33 @@ class DashboardController extends Controller
             'transfer_income' => Transaction::where('created_at', '>=', $startOfMonth)->where('payment_type', 'transfer')->sum('total'),
         ];
 
+        $startDate = $request->query('start_date', Carbon::today()->toDateString());
+        $endDate = $request->query('end_date', Carbon::today()->toDateString());
+        
+        $reportQuery = Transaction::with(['user', 'details.product'])->latest();
+        $reportBaseQuery = Transaction::query();
+
+        if ($startDate && $endDate) {
+            $start = Carbon::parse($startDate)->startOfDay();
+            $end = Carbon::parse($endDate)->endOfDay();
+            
+            $reportQuery->whereBetween('created_at', [$start, $end]);
+            $reportBaseQuery->whereBetween('created_at', [$start, $end]);
+        }
+
+        $reportTransactions = $reportQuery->get();
+
+        $reportStats = [
+            'transactions' => (clone $reportBaseQuery)->count(),
+            'income' => (clone $reportBaseQuery)->sum('total'),
+            'items' => DB::table('transaction_details')
+                ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
+                ->whereIn('transactions.id', (clone $reportBaseQuery)->select('id'))
+                ->sum('transaction_details.qty'),
+            'cash_income' => (clone $reportBaseQuery)->where('payment_type', 'cash')->sum('total'),
+            'transfer_income' => (clone $reportBaseQuery)->where('payment_type', 'transfer')->sum('total'),
+        ];
+
         return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
             'products' => $products,
             'activeProducts' => $activeProducts,
@@ -103,6 +132,10 @@ class DashboardController extends Controller
             'cashiers' => $cashiers,
             'monthlyProductSales' => $monthlyProductSales,
             'stats' => $stats,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'reportTransactions' => $reportTransactions,
+            'reportStats' => $reportStats,
         ]);
     }
 }
