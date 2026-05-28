@@ -27,7 +27,7 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->route('dashboard')->with('success', 'Berhasil login.');
+        return redirect()->route('dashboard');
     }
 
     public function logout(Request $request): RedirectResponse
@@ -37,6 +37,6 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('dashboard')->with('success', 'Berhasil logout.');
+        return redirect()->route('dashboard');
     }
 }

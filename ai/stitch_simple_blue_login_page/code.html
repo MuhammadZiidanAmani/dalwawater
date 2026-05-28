@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+
+<html class="light" lang="id"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SecurePortal - Masuk</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#f8f9fa",
+                        "outline-variant": "#c2c6d4",
+                        "tertiary-fixed-dim": "#bfc8d0",
+                        "on-error": "#ffffff",
+                        "on-tertiary-container": "#c8d1da",
+                        "surface-bright": "#f8f9fa",
+                        "surface-container-highest": "#e1e3e4",
+                        "on-secondary-container": "#5b6571",
+                        "inverse-primary": "#acc7ff",
+                        "outline": "#727784",
+                        "primary-fixed-dim": "#acc7ff",
+                        "on-primary-fixed": "#001a40",
+                        "secondary-container": "#d9e3f1",
+                        "on-secondary": "#ffffff",
+                        "secondary-fixed-dim": "#bdc7d5",
+                        "surface-container-high": "#e7e8e9",
+                        "on-error-container": "#93000a",
+                        "surface-variant": "#e1e3e4",
+                        "on-secondary-fixed": "#131c26",
+                        "on-primary-fixed-variant": "#004491",
+                        "surface-container": "#edeeef",
+                        "primary-container": "#0056b3",
+                        "on-tertiary": "#ffffff",
+                        "surface-tint": "#115cb9",
+                        "surface-container-lowest": "#ffffff",
+                        "on-surface": "#191c1d",
+                        "tertiary-container": "#515a62",
+                        "primary-fixed": "#d7e2ff",
+                        "surface-container-low": "#f3f4f5",
+                        "on-primary": "#ffffff",
+                        "on-surface-variant": "#424752",
+                        "on-secondary-fixed-variant": "#3e4853",
+                        "inverse-on-surface": "#f0f1f2",
+                        "surface-dim": "#d9dadb",
+                        "error": "#ba1a1a",
+                        "tertiary": "#3a434a",
+                        "on-background": "#191c1d",
+                        "on-primary-container": "#bbd0ff",
+                        "inverse-surface": "#2e3132",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#141d23",
+                        "on-tertiary-fixed-variant": "#3f484f",
+                        "secondary": "#555f6b",
+                        "background": "#f8f9fa",
+                        "secondary-fixed": "#d9e3f1",
+                        "tertiary-fixed": "#dbe4ed",
+                        "primary": "#003f87"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-sm": "0.5rem",
+                        "stack-lg": "2rem",
+                        "stack-md": "1rem",
+                        "container-max-width": "440px",
+                        "gutter": "1.5rem",
+                        "unit": "8px",
+                        "margin-mobile": "1rem"
+                    },
+                    "fontFamily": {
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.03em", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-md": ["14px", {"lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .login-card {
+            box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.05);
+        }
+        .input-focus-ring:focus {
+            outline: none;
+            border-color: #0056b3;
+            box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface font-body-lg text-on-surface min-h-screen flex flex-col">
+<!-- Top Navigation Bar (Shared Component) -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-gutter h-16 bg-surface">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-headline-md" style="font-variation-settings: 'FILL' 1;">shield</span>
+<span class="text-headline-md font-headline-md font-bold text-primary">SecurePortal</span>
+</div>
+<div class="hidden md:flex gap-6">
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-container transition-colors px-3 py-1 rounded-lg" href="#">Pusat Bantuan</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-container transition-colors px-3 py-1 rounded-lg" href="#">Keamanan</a>
+</div>
+</header>
+<main class="flex-grow flex items-center justify-center px-margin-mobile py-stack-lg mt-16">
+<!-- Login Container -->
+<div class="w-full max-w-[440px] login-card bg-surface-container-lowest rounded-[24px] p-10 flex flex-col items-center">
+<!-- Branding / Logo Header -->
+<div class="text-center mb-stack-lg">
+<div class="inline-flex items-center justify-center w-16 h-16 bg-primary-fixed rounded-2xl mb-4">
+<span class="material-symbols-outlined text-primary text-[32px]" style="font-variation-settings: 'FILL' 1;">shield</span>
+</div>
+<h1 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-surface">Selamat Datang</h1>
+<p class="text-on-surface-variant font-body-sm text-body-sm mt-2">Silakan masuk ke akun profesional Anda</p>
+</div>
+<!-- Login Form -->
+<form class="w-full flex flex-col gap-stack-md" onsubmit="event.preventDefault();">
+<!-- Email Field -->
+<div class="flex flex-col gap-stack-sm">
+<label class="font-label-md text-label-md text-on-surface-variant px-1" for="email">Email</label>
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline-variant rounded-xl font-body-lg text-body-lg input-focus-ring transition-all" id="email" placeholder="nama@perusahaan.com" required="" type="email"/>
+</div>
+<!-- Password Field -->
+<div class="flex flex-col gap-stack-sm">
+<div class="flex justify-between items-center px-1">
+<label class="font-label-md text-label-md text-on-surface-variant" for="password">Kata Sandi</label>
+<a class="text-primary font-label-sm text-label-sm hover:underline" href="#">Lupa Kata Sandi?</a>
+</div>
+<div class="relative">
+<input class="w-full px-4 py-3 bg-surface-container-lowest border border-outline-variant rounded-xl font-body-lg text-body-lg input-focus-ring transition-all" id="password" placeholder="••••••••" required="" type="password"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant transition-colors" onclick="togglePassword()" type="button">
+<span class="material-symbols-outlined" id="toggleIcon">visibility</span>
+</button>
+</div>
+</div>
+<!-- Remember Me -->
+<div class="flex items-center gap-2 px-1 mb-2">
+<input class="w-5 h-5 rounded-[8px] border-outline-variant text-primary-container focus:ring-primary-container cursor-pointer" id="remember" type="checkbox"/>
+<label class="font-body-sm text-body-sm text-on-surface-variant cursor-pointer select-none" for="remember">Ingat saya di perangkat ini</label>
+</div>
+<!-- Submit Button -->
+<button class="w-full bg-primary-container hover:bg-primary text-white font-headline-md text-headline-md py-4 rounded-xl transition-all active:scale-[0.98] shadow-sm flex items-center justify-center gap-2" type="submit">
+                    Masuk
+                    <span class="material-symbols-outlined text-[20px]">login</span>
+</button>
+</form>
+<!-- Footer Links -->
+<div class="mt-stack-lg text-center">
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                    Belum punya akun? 
+                    <a class="text-primary font-label-md text-label-md hover:underline" href="#">Daftar sekarang</a>
+</p>
+</div>
+</div>
+</main>
+<!-- Simple Atmospheric Decoration -->
+<div class="fixed bottom-0 left-0 w-full overflow-hidden -z-10 h-64 opacity-50 pointer-events-none">
+<div class="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] bg-primary-fixed-dim blur-[100px] rounded-full"></div>
+<div class="absolute bottom-[-50px] right-[-100px] w-[400px] h-[400px] bg-secondary-container blur-[100px] rounded-full"></div>
+</div>
+<script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.innerText = 'visibility_off';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.innerText = 'visibility';
+            }
+        }
+
+        // Simple login micro-interaction simulation
+        const form = document.querySelector('form');
+        form.addEventListener('submit', () => {
+            const btn = form.querySelector('button');
+            const originalContent = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Memproses...';
+            
+            setTimeout(() => {
+                btn.innerHTML = '<span class="material-symbols-outlined">check_circle</span> Berhasil';
+                btn.classList.replace('bg-primary-container', 'bg-green-600');
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                    btn.classList.replace('bg-green-600', 'bg-primary-container');
+                }, 2000);
+            }, 1500);
+        });
+    </script>
+</body></html>

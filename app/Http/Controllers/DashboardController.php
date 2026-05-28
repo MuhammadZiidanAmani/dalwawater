@@ -113,7 +113,7 @@ class DashboardController extends Controller
             'transfer_income' => (clone $reportBaseQuery)->where('payment_type', 'transfer')->sum('total'),
         ];
 
-        $categories = Product::select('kategori', DB::raw('count(*) as count'), DB::raw('sum(stok) as total_stok'))->groupBy('kategori')->get();
+        $categories = \App\Models\Category::all();
 
         return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
             'categories' => $categories,

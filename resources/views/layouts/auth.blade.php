@@ -11,5 +11,8 @@
 </head>
 <body>
     @yield('content')
+    <div style="position: absolute; bottom: 24px; left: 0; right: 0; text-align: center; font-size: 13px; color: var(--muted);">
+        CEO Restu Gusti - 2026 &copy;
+    </div>
 </body>
 </html>

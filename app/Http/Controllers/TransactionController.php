@@ -101,6 +101,28 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function destroy(Transaction $transaction): RedirectResponse
+    {
+        if (! auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        DB::transaction(function () use ($transaction) {
+            // Restore stock
+            foreach ($transaction->details as $detail) {
+                if ($detail->product) {
+                    $detail->product->increment('stok', $detail->qty);
+                }
+            }
+            
+            // Delete details and transaction
+            $transaction->details()->delete();
+            $transaction->delete();
+        });
+
+        return redirect()->back()->with('success', 'Transaksi berhasil dihapus dan stok dikembalikan.');
+    }
+
     private function nextCode(): string
     {
         $prefix = 'TRX-'.Carbon::now()->format('ymd').'-';
