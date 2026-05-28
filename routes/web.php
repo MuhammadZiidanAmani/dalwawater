@@ -32,6 +32,12 @@ Route::middleware(['auth'])->group(function (): void {
     Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])
         ->name('transactions.destroy');
 
+    Route::put('/profile', [AuthController::class, 'updateProfile'])
+        ->name('profile.update');
+
+    Route::put('/password', [AuthController::class, 'updatePassword'])
+        ->name('password.update');
+
     Route::middleware('role:admin')->group(function (): void {
 
         Route::post('/products', [ProductController::class, 'store'])

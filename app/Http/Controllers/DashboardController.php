@@ -22,6 +22,8 @@ class DashboardController extends Controller
 
         $startDate = $request->query('start_date', Carbon::today()->toDateString());
         $endDate = $request->query('end_date', Carbon::today()->toDateString());
+        $selectedUserId = $request->query('user_id');
+        $selectedPaymentStatus = $request->query('payment_status');
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
 
@@ -30,7 +32,9 @@ class DashboardController extends Controller
         $transactions = Transaction::with(['user', 'details.product'])->latest()->limit(15)->get();
         $latestTransaction = Transaction::with(['user', 'details.product'])->latest()->first();
 
-        $rangeTransactionsQuery = Transaction::whereBetween('created_at', [$start, $end]);
+        $rangeTransactionsQuery = Transaction::whereBetween('created_at', [$start, $end])
+            ->when($selectedUserId, fn ($query) => $query->where('user_id', $selectedUserId))
+            ->when($selectedPaymentStatus, fn ($query) => $query->where('payment_status', $selectedPaymentStatus));
 
         $topProducts = Product::query()
             ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
@@ -129,6 +133,8 @@ class DashboardController extends Controller
             'stats' => $stats,
             'startDate' => $startDate,
             'endDate' => $endDate,
+            'selectedUserId' => $selectedUserId,
+            'selectedPaymentStatus' => $selectedPaymentStatus,
             'reportTransactions' => $reportTransactions,
             'reportStats' => $reportStats,
         ]);

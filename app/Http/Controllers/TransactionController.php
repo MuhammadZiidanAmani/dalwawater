@@ -20,6 +20,7 @@ class TransactionController extends Controller
             'items.*.product_id' => ['required', 'exists:products,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'payment_type' => ['required', 'in:cash,transfer'],
+            'discount_per_product' => ['nullable', 'integer', 'min:0'],
             'uang_diterima' => ['nullable', 'integer', 'min:0'],
             'bank_name' => ['nullable', 'string', 'max:100'],
             'reference_number' => ['nullable', 'string', 'max:150'],
@@ -29,6 +30,7 @@ class TransactionController extends Controller
         $transaction = DB::transaction(function () use ($data) {
             $total = 0;
             $details = [];
+            $discountPerProduct = (int) ($data['discount_per_product'] ?? 0);
 
             foreach ($data['items'] as $item) {
                 $product = Product::lockForUpdate()->findOrFail($item['product_id']);
@@ -45,7 +47,8 @@ class TransactionController extends Controller
                     ]);
                 }
 
-                $subtotal = $product->harga_jual * $item['qty'];
+                $hargaSetelahDiskon = max(0, $product->harga_jual - $discountPerProduct);
+                $subtotal = $hargaSetelahDiskon * $item['qty'];
                 $total += $subtotal;
                 $details[] = [
                     'product' => $product,
