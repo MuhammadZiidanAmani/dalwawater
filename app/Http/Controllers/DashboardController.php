@@ -20,16 +20,17 @@ class DashboardController extends Controller
             return view('auth.login');
         }
 
-        $today = Carbon::today();
-        $startOfMonth = Carbon::now()->startOfMonth();
+        $startDate = $request->query('start_date', Carbon::today()->toDateString());
+        $endDate = $request->query('end_date', Carbon::today()->toDateString());
+        $start = Carbon::parse($startDate)->startOfDay();
+        $end = Carbon::parse($endDate)->endOfDay();
 
         $products = Product::orderBy('nama_barang')->get();
         $activeProducts = Product::where('status', 'active')->orderBy('nama_barang')->get();
         $transactions = Transaction::with(['user', 'details.product'])->latest()->limit(15)->get();
         $latestTransaction = Transaction::with(['user', 'details.product'])->latest()->first();
 
-        $todayTransactionsQuery = Transaction::whereDate('created_at', $today);
-        $monthTransactionsQuery = Transaction::where('created_at', '>=', $startOfMonth);
+        $rangeTransactionsQuery = Transaction::whereBetween('created_at', [$start, $end]);
 
         $topProducts = Product::query()
             ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
@@ -69,9 +70,9 @@ class DashboardController extends Controller
         $monthlyProductSales = Product::query()
             ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
             ->leftJoin('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
-            ->where(function ($query) use ($startOfMonth) {
+            ->where(function ($query) use ($start, $end) {
                 $query->whereNull('transactions.id')
-                    ->orWhere('transactions.created_at', '>=', $startOfMonth);
+                    ->orWhereBetween('transactions.created_at', [$start, $end]);
             })
             ->select('products.nama_barang', DB::raw('COALESCE(SUM(transaction_details.qty), 0) as qty'))
             ->groupBy('products.id', 'products.nama_barang')
@@ -81,21 +82,12 @@ class DashboardController extends Controller
 
         $stats = [
             'total_stock' => Product::sum('stok'),
-            'today_transactions' => (clone $todayTransactionsQuery)->count(),
-            'today_income' => (clone $todayTransactionsQuery)->sum('total'),
+            'today_transactions' => (clone $rangeTransactionsQuery)->count(),
+            'today_income' => (clone $rangeTransactionsQuery)->sum('total'),
             'low_stock' => Product::where('stok', '<=', 20)->count(),
-            'month_transactions' => (clone $monthTransactionsQuery)->count(),
-            'month_income' => (clone $monthTransactionsQuery)->sum('total'),
-            'month_items' => DB::table('transaction_details')
-                ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
-                ->where('transactions.created_at', '>=', $startOfMonth)
-                ->sum('transaction_details.qty'),
-            'cash_income' => Transaction::where('created_at', '>=', $startOfMonth)->where('payment_type', 'cash')->sum('total'),
-            'transfer_income' => Transaction::where('created_at', '>=', $startOfMonth)->where('payment_type', 'transfer')->sum('total'),
         ];
 
-        $startDate = $request->query('start_date', Carbon::today()->toDateString());
-        $endDate = $request->query('end_date', Carbon::today()->toDateString());
+
         
         $reportQuery = Transaction::with(['user', 'details.product'])->latest();
         $reportBaseQuery = Transaction::query();
@@ -121,7 +113,10 @@ class DashboardController extends Controller
             'transfer_income' => (clone $reportBaseQuery)->where('payment_type', 'transfer')->sum('total'),
         ];
 
+        $categories = Product::select('kategori', DB::raw('count(*) as count'), DB::raw('sum(stok) as total_stok'))->groupBy('kategori')->get();
+
         return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
+            'categories' => $categories,
             'products' => $products,
             'activeProducts' => $activeProducts,
             'stockIns' => StockIn::with('product')->latest()->limit(10)->get(),

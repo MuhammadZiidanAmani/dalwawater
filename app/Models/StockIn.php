@@ -13,6 +13,8 @@ class StockIn extends Model
         'supplier',
         'tanggal',
         'keterangan',
+        'nota_pembelian',
+        'surat_jalan',
     ];
 
     protected function casts(): array
