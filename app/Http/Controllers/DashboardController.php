@@ -88,6 +88,13 @@ class DashboardController extends Controller
             'total_stock' => Product::sum('stok'),
             'today_transactions' => (clone $rangeTransactionsQuery)->count(),
             'today_income' => (clone $rangeTransactionsQuery)->sum('total'),
+            'today_profit' => DB::table('transaction_details')
+                ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
+                ->join('products', 'transaction_details.product_id', '=', 'products.id')
+                ->whereBetween('transactions.created_at', [$start, $end])
+                ->when($selectedUserId, fn ($query) => $query->where('transactions.user_id', $selectedUserId))
+                ->when($selectedPaymentStatus, fn ($query) => $query->where('transactions.payment_status', $selectedPaymentStatus))
+                ->sum(DB::raw('(transaction_details.harga - products.harga_modal) * transaction_details.qty')),
             'low_stock' => Product::where('stok', '<=', 20)->count(),
         ];
 
