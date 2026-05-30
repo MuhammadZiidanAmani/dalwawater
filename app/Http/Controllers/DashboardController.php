@@ -144,6 +144,7 @@ class DashboardController extends Controller
             'selectedPaymentStatus' => $selectedPaymentStatus,
             'reportTransactions' => $reportTransactions,
             'reportStats' => $reportStats,
+            'historyTransactions' => (clone $rangeTransactionsQuery)->with(['user', 'details.product'])->latest()->get(),
         ]);
     }
 }

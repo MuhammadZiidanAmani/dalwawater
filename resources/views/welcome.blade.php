@@ -620,13 +620,42 @@
 
         @if (auth()->user()->isAdmin())
         <section id="history" class="page {{ $page === 'history' ? 'active' : '' }}">
-            <div class="top"><div><p class="eyebrow">Laporan</p><h1>Riwayat Transaksi</h1><p class="sub">Daftar seluruh riwayat transaksi penjualan.</p></div></div>
+            <div class="top">
+                <div><p class="eyebrow">Laporan</p><h1>Riwayat Transaksi</h1><p class="sub">Daftar seluruh riwayat transaksi penjualan.</p></div>
+                <div class="actions">
+                    <a href="{{ route('transactions.export-excel', request()->query()) }}" class="btn" style="background:#10b981; color:white; border:none; box-shadow:none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Excel
+                    </a>
+                    <a href="{{ route('transactions.export-pdf', request()->query()) }}" class="btn" style="background:#ef4444; color:white; border:none; box-shadow:none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> PDF
+                    </a>
+                </div>
+            </div>
+            
+            <form class="dashboard-filter" method="GET" action="/">
+                <input type="hidden" name="page" value="history">
+                <input type="date" name="start_date" value="{{ $startDate }}" required>
+                <input type="date" name="end_date" value="{{ $endDate }}" required>
+                <select name="user_id">
+                    <option value="">Semua user</option>
+                    @foreach ($cashiers as $cashier)
+                        <option value="{{ $cashier->id }}" @selected((string) $selectedUserId === (string) $cashier->id)>{{ $cashier->name }}</option>
+                    @endforeach
+                </select>
+                <select name="payment_status">
+                    <option value="">Semua status bayar</option>
+                    <option value="paid" @selected($selectedPaymentStatus === 'paid')>Lunas</option>
+                    <option value="pending" @selected($selectedPaymentStatus === 'pending')>Pending</option>
+                </select>
+                <button type="submit">@include('partials.icon', ['name' => 'search']) Cari</button>
+            </form>
+
             <section class="panel">
                 <div class="table">
                     <table>
                         <thead><tr><th>No</th><th>Tanggal</th><th>Kasir</th><th>Metode</th><th>Total</th><th>Aksi</th></tr></thead>
                         <tbody>
-                            @foreach($transactions as $transaction)
+                            @foreach($historyTransactions as $transaction)
                             <tr>
                                 <td>{{ $transaction->kode_transaksi }}</td>
                                 <td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td>

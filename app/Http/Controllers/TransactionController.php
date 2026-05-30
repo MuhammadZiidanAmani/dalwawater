@@ -142,4 +142,59 @@ class TransactionController extends Controller
             abort(403);
         }
     }
+
+    private function getFilteredTransactions(Request $request)
+    {
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
+        $selectedUserId = $request->query('user_id');
+        $selectedPaymentStatus = $request->query('payment_status');
+
+        $query = Transaction::with(['user', 'details.product'])->latest();
+
+        if ($startDate && $endDate) {
+            $start = Carbon::parse($startDate)->startOfDay();
+            $end = Carbon::parse($endDate)->endOfDay();
+            $query->whereBetween('created_at', [$start, $end]);
+        }
+
+        if ($selectedUserId) {
+            $query->where('user_id', $selectedUserId);
+        }
+
+        if ($selectedPaymentStatus) {
+            $query->where('payment_status', $selectedPaymentStatus);
+        }
+
+        return $query->get();
+    }
+
+    public function exportExcel(Request $request)
+    {
+        $transactions = $this->getFilteredTransactions($request);
+        $filename = 'riwayat-transaksi-'.Carbon::now()->format('Ymd-His').'.xlsx';
+        
+        $rows = [];
+        foreach ($transactions as $transaction) {
+            $details = $transaction->details->map(fn($d) => $d->product?->nama_barang . ' (' . $d->qty . ')')->implode('; ');
+            $rows[] = [
+                'Kode Transaksi' => $transaction->kode_transaksi,
+                'Tanggal' => $transaction->created_at->format('Y-m-d H:i:s'),
+                'Kasir' => $transaction->user?->name ?? 'Unknown',
+                'Metode' => $transaction->payment_type,
+                'Total' => $transaction->total,
+                'Status' => $transaction->payment_status,
+                'Item Detail' => $details
+            ];
+        }
+
+        return (new \Rap2hpoutre\FastExcel\FastExcel(collect($rows)))->download($filename);
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $transactions = $this->getFilteredTransactions($request);
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('transactions.pdf', ['transactions' => $transactions]);
+        return $pdf->download('riwayat-transaksi-'.Carbon::now()->format('Ymd-His').'.pdf');
+    }
 }

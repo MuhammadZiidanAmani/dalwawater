@@ -72,5 +72,11 @@ Route::middleware(['auth'])->group(function (): void {
 
         Route::get('/reports/export-csv', [ReportController::class, 'exportCsv'])
             ->name('reports.export-csv');
+
+        Route::get('/transactions/export-excel', [TransactionController::class, 'exportExcel'])
+            ->name('transactions.export-excel');
+
+        Route::get('/transactions/export-pdf', [TransactionController::class, 'exportPdf'])
+            ->name('transactions.export-pdf');
     });
 });
