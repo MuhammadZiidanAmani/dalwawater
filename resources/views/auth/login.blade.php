@@ -84,7 +84,7 @@
             <!-- Username Field -->
             <div>
                 <label class="block text-[15px] font-semibold text-[#1e293b] mb-2" for="username">Username</label>
-                <input class="input-field" id="username" name="username" value="{{ old('username', 'admin') }}" placeholder="nama@email.com" required autofocus type="text"/>
+                <input class="input-field" id="username" name="username" value="{{ old('username') }}" placeholder="nama@email.com" required autofocus type="text"/>
             </div>
 
             <!-- Password Field -->
@@ -94,7 +94,7 @@
                     <a href="#" class="text-[14px] font-medium text-blue-600 hover:text-blue-700 transition-colors">Lupa sandi?</a>
                 </div>
                 <div class="relative">
-                    <input class="input-field pr-12" id="password" name="password" placeholder="Masukkan kata sandi" value="password" required type="password"/>
+                    <input class="input-field pr-12" id="password" name="password" placeholder="Masukkan kata sandi" required type="password"/>
                     <button class="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b] transition-colors p-1" onclick="togglePassword()" type="button">
                         <span class="material-symbols-outlined text-[22px]" id="toggleIcon">visibility_off</span>
                     </button>
@@ -107,9 +107,6 @@
                 Masuk
             </button>
             
-            <p class="text-[14px] text-center mt-2 text-[#64748b]">
-                Demo awal: <strong>admin/password</strong> atau <strong>kasir/password</strong>.
-            </p>
         </form>
 
     </div>

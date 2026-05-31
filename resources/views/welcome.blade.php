@@ -46,10 +46,9 @@
             @if (session('success')) <div class="notice ok">{{ session('success') }}</div> @endif
             <form method="POST" action="{{ route('login') }}" class="list">
                 @csrf
-                <div class="field"><label for="username">Username</label><input id="username" name="username" value="{{ old('username', 'admin') }}" required autofocus></div>
-                <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" value="password" required></div>
+                <div class="field"><label for="username">Username</label><input id="username" name="username" value="{{ old('username') }}" required autofocus></div>
+                <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required></div>
                 <button class="btn primary" type="submit">@include('partials.icon', ['name' => 'check']) Login</button>
-                <p class="sub">Demo awal: <strong>admin/password</strong> atau <strong>kasir/password</strong>.</p>
             </form>
         </section>
         <div style="position: absolute; bottom: 24px; left: 0; right: 0; text-align: center; font-size: 13px; color: var(--muted);">
