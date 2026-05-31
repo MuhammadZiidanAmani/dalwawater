@@ -11,7 +11,7 @@
         </div>
         <section class="receipt">
             <h3>Dalwa Water Tegal</h3>
-            <p>Jl. Raya Tegalwangi, Rt. 13/05<br>Kec. Talang - Kab. Tegal<br>CP : 0813-9375-0612</p>
+            <p>Jl. Raya Tegalwangi, Rt. 13/05<br>Kec. Talang - Kab. Tegal<br>CP : 0852-3699-1848</p>
             <hr>
             <div class="line"><span>No</span><strong>{{ $transaction->kode_transaksi }}</strong></div>
             <div class="line"><span>Tanggal</span><span>{{ $transaction->created_at->format('d/m/Y H:i') }}</span></div>
