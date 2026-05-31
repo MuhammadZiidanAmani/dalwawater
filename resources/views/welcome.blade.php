@@ -26,6 +26,7 @@
         @media(max-width:1180px){.grid4{grid-template-columns:repeat(2,1fr)}.dash,.split{grid-template-columns:1fr}.summary{position:static}.catalog{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}}
         @media(max-width:820px){.shell{display:block}.side{position:fixed;top:0;left:0;bottom:0;z-index:50;transform:translateX(-100%);transition:transform 0.3s ease;display:flex!important;width:260px;}.side.open{transform:translateX(0);}.sidebar-overlay{display:block;}.sidebar-overlay:not(.active){opacity:0;pointer-events:none;}.main-wrapper{display:block}.main{padding:16px 16px 92px}.top,.toolbar,.panel-head{align-items:flex-start;flex-direction:column;gap:12px}.grid4,.form-grid,.catalog{grid-template-columns:1fr}.dashboard-filter{grid-template-columns:1fr;gap:8px}.dashboard-filter input,.dashboard-filter select,.dashboard-filter button{border:1px solid var(--line);border-radius:6px}.horizontal-field{flex-direction:column;align-items:flex-start;gap:8px;}.horizontal-field label{text-align:left;flex:none;}.mobile-nav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 8px 16px;gap:4px;z-index:30;box-shadow:0 -4px 12px rgba(0,0,0,0.05)}.mobile-nav button{border:0;border-radius:6px;background:var(--surface);color:var(--muted);font-size:11px;font-weight:500;display:flex;flex-direction:column;align-items:center;flex:1;gap:4px;padding:8px 4px;transition:all 0.2s}.mobile-nav button:hover{background:var(--soft)}.mobile-nav button.active{background:var(--psoft);color:var(--primary)}}
         @media print{.side,.sidebar-overlay,.mobile-nav,.topbar,.top,.no-print{display:none!important}.shell,.main,.page{display:block;padding:0}.page{display:none}.page.print{display:block}.panel{border:0;padding:0;box-shadow:none}.receipt{border:0}}
+        input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}input[type="number"]{-moz-appearance:textfield;}
     </style>
 </head>
 <body>
@@ -75,7 +76,7 @@
                 <button class="{{ $page === 'produk' || $page === 'inventory' ? 'active' : '' }}" data-page-target="produk">@include('partials.icon', ['name' => 'box']) Data Produk</button>
                 <button class="{{ $page === 'stok' ? 'active' : '' }}" data-page-target="stok">@include('partials.icon', ['name' => 'box']) Data Stok</button>
                 @if (auth()->user()->isAdmin())
-                    <button class="{{ $page === 'stockin' ? 'active' : '' }}" data-page-target="stockin">@include('partials.icon', ['name' => 'truck']) Barang Masuk</button>
+                    <button class="{{ $page === 'stockin' ? 'active' : '' }}" data-page-target="stockin">@include('partials.icon', ['name' => 'truck']) Pembelian</button>
                 @endif
             </div>
 
@@ -83,12 +84,12 @@
             <div class="nav-section">
                 <div class="nav-title">Laporan</div>
                 <button class="{{ $page === 'history' ? 'active' : '' }}" data-page-target="history">@include('partials.icon', ['name' => 'receipt']) Riwayat Transaksi</button>
-                <button class="{{ $page === 'reports' ? 'active' : '' }}" data-page-target="reports">@include('partials.icon', ['name' => 'chart']) Rekap Penjualan</button>
             </div>
 
             <div class="nav-section">
                 <div class="nav-title">Pengaturan</div>
                 <button class="{{ $page === 'settings-general' ? 'active' : '' }}" data-page-target="settings-general">@include('partials.icon', ['name' => 'settings']) Umum</button>
+                <button class="{{ $page === 'cashiers' ? 'active' : '' }}" data-page-target="cashiers">@include('partials.icon', ['name' => 'users']) Role User</button>
                 <button class="{{ $page === 'settings-profile' ? 'active' : '' }}" data-page-target="settings-profile">@include('partials.icon', ['name' => 'profile']) Edit Profil</button>
                 <button class="{{ $page === 'settings-password' ? 'active' : '' }}" data-page-target="settings-password">@include('partials.icon', ['name' => 'lock']) Ganti Password</button>
             </div>
@@ -598,19 +599,129 @@
 
         @if (auth()->user()->isAdmin())
         <section id="stockin" class="page {{ $page === 'stockin' ? 'active' : '' }}">
-            <div class="top"><div><p class="eyebrow">Penambahan stok</p><h1>Barang Masuk</h1><p class="sub">Simpan barang masuk, stok otomatis bertambah.</p></div></div>
-            <section class="panel"><form method="POST" action="{{ route('stock-ins.store') }}" enctype="multipart/form-data" class="form-grid">@csrf
-                <div class="field"><label>Tanggal</label><input name="tanggal" type="date" value="{{ now()->toDateString() }}" required></div><div class="field"><label>Barang</label><select name="product_id">@foreach($products as $product)<option value="{{ $product->id }}">{{ $product->nama_barang }}</option>@endforeach</select></div><div class="field"><label>Jumlah Masuk</label><input name="qty" type="number" min="1" required></div><div class="field"><label>Supplier</label><input name="supplier" value="Gudang Dalwa"></div>
-                <div class="field" style="grid-column: span 2"><label>Nota Pembelian</label><input type="file" name="nota_pembelian" accept=".jpg,.jpeg,.png,.pdf" style="padding: 6px;"></div>
-                <div class="field" style="grid-column: span 2"><label>Surat Jalan</label><input type="file" name="surat_jalan" accept=".jpg,.jpeg,.png,.pdf" style="padding: 6px;"></div>
-                <div class="field" style="grid-column:1/-1"><label>Keterangan</label><textarea name="keterangan"></textarea></div><button class="btn primary" type="submit">@include('partials.icon', ['name' => 'check']) Simpan</button>
-            </form></section>
-            <section class="panel"><h2>Riwayat Barang Masuk</h2><div class="list">@foreach($stockIns as $stock)<div class="activity"><span class="tile">@include('partials.icon', ['name' => 'truck'])</span><div class="grow"><strong>{{ $stock->product->nama_barang }} +{{ $stock->qty }} {{ $stock->product->satuan }}</strong><span class="muted">{{ $stock->supplier }} - {{ $stock->tanggal->format('d/m/Y') }}</span>
-                <div style="display:flex; gap:8px; margin-top:4px;">
-                    @if($stock->nota_pembelian)<a href="{{ asset('storage/' . $stock->nota_pembelian) }}" target="_blank" class="badge gray" style="text-decoration:none">@include('partials.icon', ['name' => 'receipt']) Lihat Nota</a>@endif
-                    @if($stock->surat_jalan)<a href="{{ asset('storage/' . $stock->surat_jalan) }}" target="_blank" class="badge gray" style="text-decoration:none">@include('partials.icon', ['name' => 'box']) Lihat Surat Jalan</a>@endif
+            <div style="margin-bottom: 24px;">
+                <h1 style="font-size: 24px; color: var(--text-dark); margin: 0 0 4px; font-weight: 500;">Pembelian</h1>
+                <p style="color: var(--muted); margin: 0; font-size: 14px;">Daftar Riwayat Pembelian Barang / Stok Masuk</p>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <select style="width: 180px; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--line); background: white; color: var(--text-dark); font-size: 14px; outline: none;">
+                        <option>Semua Supplier</option>
+                    </select>
                 </div>
-            </div><span class="badge green">Masuk</span></div>@endforeach</div></section>
+                
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <button type="button" class="btn primary" style="background: #3b82f6; border: none; border-radius: 4px; padding: 8px 16px; font-weight: 500; font-size: 14px; box-shadow: none;" onclick="document.getElementById('add-stockin-modal').classList.add('active')">
+                        + Tambah Pembelian
+                    </button>
+                </div>
+            </div>
+
+            <div id="add-stockin-modal" class="modal-overlay">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Form Tambah Pembelian</h2>
+                        <button type="button" style="background:transparent; border:none; color:var(--muted); cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" onclick="document.getElementById('add-stockin-modal').classList.remove('active')">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <form method="POST" action="{{ route('stock-ins.store') }}" enctype="multipart/form-data">
+                        @csrf
+                        <div class="modal-body">
+                            <div class="horizontal-field">
+                                <label>Tanggal <span class="required">*</span></label>
+                                <div class="input-wrap"><input name="tanggal" type="date" value="{{ now()->toDateString() }}" required></div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Barang <span class="required">*</span></label>
+                                <div class="input-wrap">
+                                    <select name="product_id" required>
+                                        <option value="">Pilih Barang</option>
+                                        @foreach($products as $product)
+                                            <option value="{{ $product->id }}">{{ $product->nama_barang }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Jumlah Masuk <span class="required">*</span></label>
+                                <div class="input-wrap"><input name="qty" type="number" min="1" required></div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Supplier <span class="required">*</span></label>
+                                <div class="input-wrap"><input name="supplier" value="Gudang Dalwa" required></div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Nota Pembelian</label>
+                                <div class="input-wrap">
+                                    <div style="display:flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--surface);">
+                                        <label for="nota_upload" style="background:var(--soft); padding:8px 16px; border-right:1px solid var(--line); cursor:pointer; font-weight:500; font-size:14px; text-align:center; flex:none;">Choose File</label>
+                                        <input type="file" name="nota_pembelian" id="nota_upload" style="display:none;" accept=".jpg,.jpeg,.png,.pdf" onchange="document.getElementById('nota_text').innerText = this.files[0] ? this.files[0].name : 'No file chosen'">
+                                        <div id="nota_text" style="padding:8px 16px; color:var(--muted); font-size:14px; flex:1; display:flex; align-items:center;">No file chosen</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Surat Jalan</label>
+                                <div class="input-wrap">
+                                    <div style="display:flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--surface);">
+                                        <label for="surat_upload" style="background:var(--soft); padding:8px 16px; border-right:1px solid var(--line); cursor:pointer; font-weight:500; font-size:14px; text-align:center; flex:none;">Choose File</label>
+                                        <input type="file" name="surat_jalan" id="surat_upload" style="display:none;" accept=".jpg,.jpeg,.png,.pdf" onchange="document.getElementById('surat_text').innerText = this.files[0] ? this.files[0].name : 'No file chosen'">
+                                        <div id="surat_text" style="padding:8px 16px; color:var(--muted); font-size:14px; flex:1; display:flex; align-items:center;">No file chosen</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Keterangan</label>
+                                <div class="input-wrap"><textarea name="keterangan" placeholder="Masukan keterangan..."></textarea></div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn" style="background:#64748b; color:white; border:none;" onclick="document.getElementById('add-stockin-modal').classList.remove('active')">Batal</button>
+                            <button type="submit" class="btn primary" style="background:#3b82f6; border:none;">Simpan</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <section class="panel" style="padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--line); background: white;">
+                <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 24px; color: var(--text-dark);">Tabel Riwayat Pembelian</h2>
+                <div class="table" style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 800px;">
+                        <thead>
+                            <tr>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Tanggal</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Supplier</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Barang</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Jumlah</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Bukti</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: center;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($stockIns as $stock)
+                            <tr style="border-bottom: 1px solid var(--line);">
+                                <td style="padding: 16px; color: var(--text-dark); font-size: 14px;">{{ $stock->tanggal->format('d/m/Y') }}</td>
+                                <td style="padding: 16px; color: var(--muted); font-size: 14px;">{{ $stock->supplier }}</td>
+                                <td style="padding: 16px; color: var(--text-dark); font-size: 14px;"><strong>{{ $stock->product->nama_barang }}</strong></td>
+                                <td style="padding: 16px; color: var(--text-dark); font-size: 14px;">+{{ $stock->qty }} {{ $stock->product->satuan }}</td>
+                                <td style="padding: 16px; font-size: 14px;">
+                                    <div style="display:flex; flex-direction:column; gap:6px;">
+                                        @if($stock->nota_pembelian)<a href="{{ asset('storage/' . $stock->nota_pembelian) }}" target="_blank" class="badge gray" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-size:11px; padding:2px 8px;">@include('partials.icon', ['name' => 'receipt']) Nota</a>@endif
+                                        @if($stock->surat_jalan)<a href="{{ asset('storage/' . $stock->surat_jalan) }}" target="_blank" class="badge gray" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-size:11px; padding:2px 8px;">@include('partials.icon', ['name' => 'box']) Surat Jalan</a>@endif
+                                        @if(!$stock->nota_pembelian && !$stock->surat_jalan)<span class="muted">-</span>@endif
+                                    </div>
+                                </td>
+                                <td style="padding: 16px; text-align: center;"><span class="badge green">Masuk</span></td>
+                            </tr>
+                            @empty
+                            <tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--muted);">Belum ada riwayat pembelian.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </section>
         @endif
 
@@ -618,7 +729,7 @@
             <div class="top"><div><p class="eyebrow">Kasir & Data</p><h1>Transaksi Penjualan</h1><p class="sub">Pilih barang, input qty, pembayaran, lalu simpan nota.</p></div></div>
             <form method="POST" action="{{ route('transactions.store') }}" id="sale-form" class="split" style="margin-bottom:16px">@csrf
                 <section class="panel"><div class="toolbar" style="margin-bottom:14px"><h2>Katalog Produk</h2><input id="search-sale" placeholder="Cari produk" style="max-width:320px"></div><div class="catalog" id="catalog">@foreach($activeProducts as $product)<button type="button" data-add-item data-id="{{ $product->id }}" data-name="{{ $product->nama_barang }}" data-price="{{ $product->harga_jual }}" data-stock="{{ $product->stok }}" data-unit="{{ $product->satuan }}"><span class="thumb">@include('partials.product-icon')</span><div><h3>{{ $product->nama_barang }}</h3><span class="muted">{{ $product->kode_barang }} - stok {{ $product->stok }} {{ $product->satuan }}</span></div><span class="price">{{ $rupiah($product->harga_jual) }}</span></button>@endforeach</div></section>
-                <aside class="panel summary"><div class="panel-head"><div><h2>Transaksi baru</h2></div><span class="badge green">{{ auth()->user()->name }}</span></div><div id="cart-list" class="list" style="margin:14px 0"></div><div id="cart-empty" class="notice err">Transaksi masih kosong.</div><div id="cart-inputs"></div><div class="total big"><span>Total</span><strong id="grand-total">Rp 0</strong></div><div class="field" style="margin-top:12px"><label>Diskon Per Produk</label><input id="discount-per-product" name="discount_per_product" type="number" value="0" min="0"></div><div class="tabs"><button class="active" type="button" data-payment-tab="cash">Tunai</button><button type="button" data-payment-tab="transfer">Transfer</button></div><input type="hidden" name="payment_type" id="payment-type" value="cash"><div id="cash-fields" class="field"><label>Uang Diterima</label><input id="paid" name="uang_diterima" type="number" value="0" min="0"><div class="total big"><span>Kembalian</span><strong id="change">Rp 0</strong></div></div><div id="transfer-fields" class="form-grid" style="grid-template-columns:1fr;display:none"><div class="field"><label>Nama Bank</label><input name="bank_name" value="BSI"></div><div class="field"><label>No Referensi</label><input name="reference_number"></div><div class="field"><label>Status</label><select name="payment_status"><option value="paid">Lunas</option><option value="pending">Pending</option></select></div></div><button class="btn primary" style="width:100%;margin-top:14px" type="submit">@include('partials.icon', ['name' => 'check']) Simpan & Cetak Nota</button></aside>
+                <aside class="panel summary"><div class="panel-head"><div><h2>Transaksi Baru</h2></div><span class="badge green">{{ auth()->user()->name }}</span></div><div id="cart-list" class="list" style="margin:14px 0"></div><div id="cart-empty" class="notice err">Transaksi masih kosong.</div><div id="cart-inputs"></div><div class="total big"><span>Total</span><strong id="grand-total">Rp 0</strong></div><div class="field" style="margin-top:16px"><label>Pembeli/Member (Opsional)</label><input name="customer_name" placeholder="Masukan nama pembeli"></div><div class="field" style="margin-top:12px"><label>Diskon Per Produk</label><input id="discount-per-product" name="discount_per_product" type="number" value="0" min="0"></div><div class="tabs"><button class="active" type="button" data-payment-tab="cash">Tunai</button><button type="button" data-payment-tab="transfer">Transfer</button></div><input type="hidden" name="payment_type" id="payment-type" value="cash"><div id="cash-fields" class="field"><label>Uang Diterima</label><input id="paid" name="uang_diterima" type="number" value="0" min="0"><div class="total big"><span>Kembalian</span><strong id="change">Rp 0</strong></div></div><div id="transfer-fields" class="form-grid" style="grid-template-columns:1fr;display:none"><div class="field"><label>Nama Bank</label><input name="bank_name" value="BSI"></div><div class="field"><label>No Referensi</label><input name="reference_number"></div><div class="field"><label>Status</label><select name="payment_status"><option value="paid">Lunas</option><option value="pending">Pending</option></select></div></div><button class="btn primary" style="width:100%;margin-top:14px" type="submit">@include('partials.icon', ['name' => 'check']) Simpan & Cetak Nota</button></aside>
             </form>
         </section>
 
@@ -657,13 +768,14 @@
             <section class="panel">
                 <div class="table">
                     <table>
-                        <thead><tr><th>No</th><th>Tanggal</th><th>Kasir</th><th>Metode</th><th>Total</th><th>Aksi</th></tr></thead>
+                        <thead><tr><th>No</th><th>Tanggal</th><th>Kasir</th><th>Pelanggan</th><th>Metode</th><th>Total</th><th>Aksi</th></tr></thead>
                         <tbody>
                             @foreach($historyTransactions as $transaction)
                             <tr>
                                 <td>{{ $transaction->kode_transaksi }}</td>
                                 <td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td>
                                 <td>{{ $transaction->user->name }}</td>
+                                <td>{{ $transaction->customer_name ?? '-' }}</td>
                                 <td>{{ $transaction->payment_type }}</td>
                                 <td class="price">{{ $rupiah($transaction->total) }}</td>
                                 <td>
@@ -686,9 +798,190 @@
         </section>
 
         <section id="cashiers" class="page {{ $page === 'cashiers' ? 'active' : '' }}">
-            <div class="top"><div><p class="eyebrow">User role</p><h1>Manajemen Kasir</h1><p class="sub">Tambah kasir/admin, aktifkan, dan reset password.</p></div></div>
-            <section class="panel"><h2>Tambah User</h2><form method="POST" action="{{ route('cashiers.store') }}" class="form-grid">@csrf <div class="field"><label>Nama</label><input name="name" required></div><div class="field"><label>Username</label><input name="username" required></div><div class="field"><label>Password</label><input name="password" type="password" required></div><div class="field"><label>Role</label><select name="role"><option value="cashier">Kasir</option><option value="admin">Admin</option></select></div><div class="field"><label>Status</label><select name="status"><option value="active">Aktif</option><option value="inactive">Nonaktif</option></select></div><button class="btn primary" type="submit">@include('partials.icon', ['name' => 'plus']) Simpan User</button></form></section>
-            <section class="panel"><h2>Daftar User</h2><div class="table"><table><thead><tr><th>Nama</th><th>Username</th><th>Role</th><th>Status</th><th>Penjualan Hari Ini</th><th>Aksi</th></tr></thead><tbody>@foreach($cashiers as $cashier)<tr><td><strong>{{ $cashier->name }}</strong></td><td>{{ $cashier->username }}</td><td>{{ ucfirst($cashier->role) }}</td><td><span class="badge {{ $cashier->status === 'active' ? 'green' : 'red' }}">{{ $cashier->status }}</span></td><td>{{ $rupiah($cashier->today_sales ?? 0) }}</td><td><details><summary class="btn soft">@include('partials.icon', ['name' => 'edit']) Edit</summary><form class="inline-form" method="POST" action="{{ route('cashiers.update', $cashier) }}" style="margin-top:8px">@csrf @method('PUT')<input name="name" value="{{ $cashier->name }}" required><input name="username" value="{{ $cashier->username }}" required><input name="password" type="password" placeholder="Kosongkan jika tetap"><select name="role"><option value="cashier" @selected($cashier->role === 'cashier')>Kasir</option><option value="admin" @selected($cashier->role === 'admin')>Admin</option></select><select name="status"><option value="active" @selected($cashier->status === 'active')>Aktif</option><option value="inactive" @selected($cashier->status === 'inactive')>Nonaktif</option></select><button class="btn primary" type="submit">Update</button></form></details><form class="inline-form" method="POST" action="{{ route('cashiers.reset-password', $cashier) }}" style="margin-top:8px">@csrf @method('PUT')<input name="password" type="password" placeholder="Password baru" required><button class="btn soft" type="submit">@include('partials.icon', ['name' => 'key']) Reset</button></form></td></tr>@endforeach</tbody></table></div></section>
+            <div style="margin-bottom: 24px;">
+                <h1 style="font-size: 24px; color: var(--text-dark); margin: 0 0 4px; font-weight: 500;">Role User</h1>
+                <p style="color: var(--muted); margin: 0; font-size: 14px;">Manajemen Data Kasir dan Admin</p>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <select style="width: 140px; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--line); background: white; color: var(--text-dark); font-size: 14px; outline: none;">
+                        <option>Semua Role</option>
+                        <option>Admin</option>
+                        <option>Kasir</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <button type="button" class="btn primary" style="background: #3b82f6; border: none; border-radius: 4px; padding: 8px 16px; font-weight: 500; font-size: 14px; box-shadow: none;" onclick="document.getElementById('add-user-modal').classList.add('active')">
+                        + Tambah User
+                    </button>
+                </div>
+            </div>
+
+            <div id="add-user-modal" class="modal-overlay">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Form Tambah User</h2>
+                        <button type="button" style="background:transparent; border:none; color:var(--muted); cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" onclick="document.getElementById('add-user-modal').classList.remove('active')">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <form method="POST" action="{{ route('cashiers.store') }}">
+                        @csrf
+                        <div class="modal-body">
+                            <div class="horizontal-field">
+                                <label>Nama <span class="required">*</span></label>
+                                <div class="input-wrap"><input name="name" placeholder="Nama Lengkap" required></div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Username <span class="required">*</span></label>
+                                <div class="input-wrap"><input name="username" placeholder="Username untuk login" required></div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Password <span class="required">*</span></label>
+                                <div class="input-wrap"><input name="password" type="password" placeholder="Password" required></div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Role <span class="required">*</span></label>
+                                <div class="input-wrap">
+                                    <select name="role" required>
+                                        <option value="cashier">Kasir</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="horizontal-field">
+                                <label>Status <span class="required">*</span></label>
+                                <div class="input-wrap">
+                                    <select name="status" required>
+                                        <option value="active">Aktif</option>
+                                        <option value="inactive">Nonaktif</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn" style="background:#64748b; color:white; border:none;" onclick="document.getElementById('add-user-modal').classList.remove('active')">Batal</button>
+                            <button type="submit" class="btn primary" style="background:#3b82f6; border:none;">Simpan</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <section class="panel" style="padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--line); background: white;">
+                <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 24px; color: var(--text-dark);">Tabel Data User</h2>
+                <div class="table" style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 800px;">
+                        <thead>
+                            <tr>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Nama</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Username</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: left;">Role</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: center;">Status</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: right;">Penjualan Hari Ini</th>
+                                <th style="padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8fafc; color: var(--text-dark); font-weight: 600; font-size: 14px; text-align: center;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($cashiers as $cashier)
+                            <tr style="border-bottom: 1px solid var(--line);">
+                                <td style="padding: 16px; color: var(--text-dark); font-size: 14px;"><strong>{{ $cashier->name }}</strong></td>
+                                <td style="padding: 16px; color: var(--muted); font-size: 14px;">{{ $cashier->username }}</td>
+                                <td style="padding: 16px; color: var(--muted); font-size: 14px;">{{ ucfirst($cashier->role) }}</td>
+                                <td style="padding: 16px; text-align: center;"><span class="badge {{ $cashier->status === 'active' ? 'green' : 'red' }}">{{ $cashier->status }}</span></td>
+                                <td style="padding: 16px; color: var(--text-dark); font-size: 14px; text-align: right; white-space: nowrap;">{{ $rupiah($cashier->today_sales ?? 0) }}</td>
+                                <td style="padding: 16px; text-align: center; white-space: nowrap;">
+                                    <button type="button" class="btn soft" style="font-size: 12px; padding: 4px 10px; margin-right: 4px;" onclick="document.getElementById('edit-user-modal-{{ $cashier->id }}').classList.add('active')" title="Edit">
+                                        @include('partials.icon', ['name' => 'edit']) Edit
+                                    </button>
+                                    <button type="button" class="btn soft" style="font-size: 12px; padding: 4px 10px;" onclick="document.getElementById('reset-password-modal-{{ $cashier->id }}').classList.add('active')" title="Reset Password">
+                                        @include('partials.icon', ['name' => 'key']) Reset
+                                    </button>
+                                </td>
+                            </tr>
+
+                            <div id="edit-user-modal-{{ $cashier->id }}" class="modal-overlay">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2>Edit User: {{ $cashier->name }}</h2>
+                                        <button type="button" style="background:transparent; border:none; color:var(--muted); cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" onclick="document.getElementById('edit-user-modal-{{ $cashier->id }}').classList.remove('active')">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        </button>
+                                    </div>
+                                    <form method="POST" action="{{ route('cashiers.update', $cashier) }}">
+                                        @csrf
+                                        @method('PUT')
+                                        <div class="modal-body">
+                                            <div class="horizontal-field">
+                                                <label>Nama <span class="required">*</span></label>
+                                                <div class="input-wrap"><input name="name" value="{{ $cashier->name }}" required></div>
+                                            </div>
+                                            <div class="horizontal-field">
+                                                <label>Username <span class="required">*</span></label>
+                                                <div class="input-wrap"><input name="username" value="{{ $cashier->username }}" required></div>
+                                            </div>
+                                            <div class="horizontal-field">
+                                                <label>Password</label>
+                                                <div class="input-wrap"><input name="password" type="password" placeholder="Kosongkan jika tidak ingin diubah"></div>
+                                            </div>
+                                            <div class="horizontal-field">
+                                                <label>Role <span class="required">*</span></label>
+                                                <div class="input-wrap">
+                                                    <select name="role" required>
+                                                        <option value="cashier" @selected($cashier->role === 'cashier')>Kasir</option>
+                                                        <option value="admin" @selected($cashier->role === 'admin')>Admin</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="horizontal-field">
+                                                <label>Status <span class="required">*</span></label>
+                                                <div class="input-wrap">
+                                                    <select name="status" required>
+                                                        <option value="active" @selected($cashier->status === 'active')>Aktif</option>
+                                                        <option value="inactive" @selected($cashier->status === 'inactive')>Nonaktif</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn" style="background:#64748b; color:white; border:none;" onclick="document.getElementById('edit-user-modal-{{ $cashier->id }}').classList.remove('active')">Batal</button>
+                                            <button type="submit" class="btn primary" style="background:#3b82f6; border:none;">Update User</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <div id="reset-password-modal-{{ $cashier->id }}" class="modal-overlay">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2>Reset Password: {{ $cashier->name }}</h2>
+                                        <button type="button" style="background:transparent; border:none; color:var(--muted); cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;" onclick="document.getElementById('reset-password-modal-{{ $cashier->id }}').classList.remove('active')">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                        </button>
+                                    </div>
+                                    <form method="POST" action="{{ route('cashiers.reset-password', $cashier) }}">
+                                        @csrf
+                                        @method('PUT')
+                                        <div class="modal-body">
+                                            <div class="horizontal-field">
+                                                <label>Password Baru <span class="required">*</span></label>
+                                                <div class="input-wrap"><input name="password" type="password" placeholder="Masukan password baru" required></div>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn" style="background:#64748b; color:white; border:none;" onclick="document.getElementById('reset-password-modal-{{ $cashier->id }}').classList.remove('active')">Batal</button>
+                                            <button type="submit" class="btn" style="background:#f59e0b; color:white; border:none;">Reset Password</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </section>
 
         <section id="settings-general" class="page {{ $page === 'settings-general' ? 'active' : '' }}">
@@ -740,32 +1033,6 @@
             </section>
         </section>
 
-        <section id="reports" class="page {{ $page === 'reports' ? 'active' : '' }}">
-            <div class="top" style="flex-direction: column; align-items: flex-start; gap: 20px;">
-                <div style="display: flex; align-items: flex-start; justify-content: space-between; width: 100%;">
-                    <div><p class="eyebrow">Laporan</p><h1>Rekap Penjualan</h1><p class="sub">Laporan harian, bulanan, metode pembayaran, dan export.</p></div>
-                    <a class="btn primary" href="{{ route('reports.export-csv', ['start_date' => $startDate ?? '', 'end_date' => $endDate ?? '']) }}">@include('partials.icon', ['name' => 'download']) Export Excel CSV</a>
-                </div>
-                <div class="actions" style="width: 100%;">
-                    <form method="GET" action="/" style="display: flex; align-items: center; gap: 18px; width: 100%; padding-top: 8px; border-top: 1px solid var(--line);">
-                        <input type="hidden" name="page" value="reports">
-                        <span style="font-size: 16px; font-weight: 500; color: var(--text);">Waktu</span>
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                            <input type="date" name="start_date" value="{{ $startDate }}" required style="padding: 10px 12px; border: 1px solid var(--soft); border-radius: 6px; background: white; outline: none; font-family: inherit; font-size: 14px; color: var(--muted); cursor: pointer; min-width: 135px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);" onchange="this.form.submit()">
-                            <span style="font-weight: 500; color: var(--text);">-</span>
-                            <input type="date" name="end_date" value="{{ $endDate }}" required style="padding: 10px 12px; border: 1px solid var(--soft); border-radius: 6px; background: white; outline: none; font-family: inherit; font-size: 14px; color: var(--muted); cursor: pointer; min-width: 135px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);" onchange="this.form.submit()">
-                        </div>
-                    </form>
-                </div>
-            </div>
-            <div class="grid4">
-                <article class="card"><p class="sub">Total transaksi</p><div class="value">{{ $reportStats['transactions'] }}</div></article>
-                <article class="card"><p class="sub">Pendapatan</p><div class="value">{{ $rupiah($reportStats['income']) }}</div></article>
-                <article class="card"><p class="sub">Produk terjual</p><div class="value">{{ $reportStats['items'] ?? 0 }}</div></article>
-                <article class="card"><p class="sub">Tunai / Transfer</p><div class="value"><small>{{ $rupiah($reportStats['cash_income']) }} / {{ $rupiah($reportStats['transfer_income']) }}</small></div></article>
-            </div>
-            <section class="panel"><h2>Transaksi Terbaru</h2><div class="table"><table><thead><tr><th>No</th><th>Tanggal</th><th>Kasir</th><th>Metode</th><th>Total</th><th>Nota</th></tr></thead><tbody>@foreach($reportTransactions as $transaction)<tr><td>{{ $transaction->kode_transaksi }}</td><td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td><td>{{ $transaction->user->name }}</td><td>{{ $transaction->payment_type }}</td><td class="price">{{ $rupiah($transaction->total) }}</td><td><a class="btn soft" href="{{ route('transactions.receipt', $transaction) }}">Nota</a></td></tr>@endforeach</tbody></table></div></section>
-        </section>
         @endif
 
         </main>
@@ -779,8 +1046,8 @@
         <button class="{{ $page === 'dashboard' ? 'active' : '' }}" data-page-target="dashboard">@include('partials.icon', ['name' => 'dashboard']) Dash</button>
         <button class="{{ in_array($page, ['kategori', 'produk', 'stok', 'stockin', 'inventory']) ? 'active' : '' }}" data-page-target="produk">@include('partials.icon', ['name' => 'box']) Barang</button>
         <button class="{{ $page === 'transactions' ? 'active' : '' }}" data-page-target="transactions">@include('partials.icon', ['name' => 'wallet']) Transaksi</button>
-        @if(auth()->user()->isAdmin())<button class="{{ in_array($page, ['history', 'reports']) ? 'active' : '' }}" data-page-target="reports">@include('partials.icon', ['name' => 'chart']) Laporan</button>@endif
-        @if(auth()->user()->isAdmin())<button class="{{ in_array($page, ['settings-general', 'settings-profile', 'settings-password']) ? 'active' : '' }}" data-page-target="settings-general">@include('partials.icon', ['name' => 'settings']) Atur</button>@endif
+        @if(auth()->user()->isAdmin())<button class="{{ $page === 'history' ? 'active' : '' }}" data-page-target="history">@include('partials.icon', ['name' => 'chart']) Laporan</button>@endif
+        @if(auth()->user()->isAdmin())<button class="{{ in_array($page, ['settings-general', 'cashiers', 'settings-profile', 'settings-password']) ? 'active' : '' }}" data-page-target="settings-general">@include('partials.icon', ['name' => 'settings']) Atur</button>@endif
     </nav>
 </div>
 
@@ -789,8 +1056,9 @@ const rupiah=value=>new Intl.NumberFormat('id-ID',{style:'currency',currency:'ID
 const activate=id=>{document.querySelectorAll('.page').forEach(p=>{p.classList.toggle('active',p.id===id);p.classList.toggle('print',p.id===id&&id==='receipt')});document.querySelectorAll('[data-page-target]').forEach(b=>{b.classList.toggle('active',b.dataset.pageTarget===id);if(b.dataset.pageTarget===id&&b.closest('.submenu'))b.closest('.submenu').classList.add('show');});history.replaceState(null,'','?page='+id);scrollTo({top:0,behavior:'smooth'})};
 document.querySelectorAll('[data-page-target],[data-page-jump]').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.pageTarget||b.dataset.pageJump)));
 const cart=new Map,cartList=document.getElementById('cart-list'),cartInputs=document.getElementById('cart-inputs'),empty=document.getElementById('cart-empty'),grand=document.getElementById('grand-total'),paid=document.getElementById('paid'),discountPerProduct=document.getElementById('discount-per-product'),change=document.getElementById('change');
-function renderCart(){if(!cartList)return;cartList.innerHTML='';cartInputs.innerHTML='';let total=0,index=0;const discount=Math.max(0,Number(discountPerProduct?.value||0));cart.forEach(item=>{const discountedPrice=Math.max(0,item.price-discount),line=item.qty*discountedPrice;total+=line;cartList.insertAdjacentHTML('beforeend',`<div class="cart-row"><span class="thumb">@include('partials.product-icon')</span><div class="grow"><strong>${item.name}</strong><span class="muted">${rupiah(item.price)} / ${item.unit} | stok ${item.stock}</span><div class="qty"><button type="button" data-minus="${item.id}">-</button><strong>${item.qty}</strong><button type="button" data-plus="${item.id}">+</button></div></div><span class="price">${rupiah(line)}</span></div>`);cartInputs.insertAdjacentHTML('beforeend',`<input type="hidden" name="items[${index}][product_id]" value="${item.id}"><input type="hidden" name="items[${index}][qty]" value="${item.qty}">`);index++});empty.style.display=cart.size?'none':'block';grand.textContent=rupiah(total);change.textContent=rupiah(Math.max(0,Number(paid.value||0)-total))}
+function renderCart(){if(!cartList)return;cartList.innerHTML='';cartInputs.innerHTML='';let total=0,index=0;const discount=Math.max(0,Number(discountPerProduct?.value||0));cart.forEach(item=>{const discountedPrice=Math.max(0,item.price-discount),line=item.qty*discountedPrice;total+=line;cartList.insertAdjacentHTML('beforeend',`<div class="cart-row"><span class="thumb">@include('partials.product-icon')</span><div class="grow"><strong>${item.name}</strong><span class="muted">${rupiah(item.price)} / ${item.unit} | stok ${item.stock}</span><div class="qty"><button type="button" data-minus="${item.id}">-</button><input type="number" class="qty-input" data-id="${item.id}" value="${item.qty}" min="1" max="${item.stock}" style="width:64px;text-align:center;border:1px solid #e2e8f0;border-radius:4px;margin:0 4px;font-weight:600;height:28px;outline:none;"><button type="button" data-plus="${item.id}">+</button></div></div><span class="price">${rupiah(line)}</span></div>`);cartInputs.insertAdjacentHTML('beforeend',`<input type="hidden" name="items[${index}][product_id]" value="${item.id}"><input type="hidden" name="items[${index}][qty]" value="${item.qty}">`);index++});empty.style.display=cart.size?'none':'block';grand.textContent=rupiah(total);change.textContent=rupiah(Math.max(0,Number(paid.value||0)-total))}
 document.addEventListener('click',e=>{const add=e.target.closest('[data-add-item]'),plus=e.target.closest('[data-plus]'),minus=e.target.closest('[data-minus]');if(add){const id=add.dataset.id,item=cart.get(id)||{id,name:add.dataset.name,price:Number(add.dataset.price),stock:Number(add.dataset.stock),unit:add.dataset.unit,qty:0};if(item.qty<item.stock)item.qty++;cart.set(id,item);renderCart()}if(plus){const item=cart.get(plus.dataset.plus);if(item&&item.qty<item.stock)item.qty++;renderCart()}if(minus){const item=cart.get(minus.dataset.minus);if(item){item.qty--;if(item.qty<1)cart.delete(item.id)}renderCart()}});
+document.addEventListener('change',e=>{if(e.target.classList.contains('qty-input')){const id=e.target.dataset.id,item=cart.get(id);if(item){let newQty=parseInt(e.target.value);if(isNaN(newQty)||newQty<1)cart.delete(id);else item.qty=Math.min(newQty,item.stock);renderCart()}}});
 paid?.addEventListener('input',renderCart);
 discountPerProduct?.addEventListener('input',renderCart);
 document.querySelectorAll('[data-payment-tab]').forEach(tab=>tab.addEventListener('click',()=>{const cash=tab.dataset.paymentTab==='cash';document.querySelectorAll('[data-payment-tab]').forEach(t=>t.classList.toggle('active',t===tab));document.getElementById('payment-type').value=tab.dataset.paymentTab;document.getElementById('cash-fields').style.display=cash?'grid':'none';document.getElementById('transfer-fields').style.display=cash?'none':'grid';if(!cash)paid.value=0;renderCart()}));

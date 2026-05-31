@@ -25,6 +25,7 @@ class TransactionController extends Controller
             'bank_name' => ['nullable', 'string', 'max:100'],
             'reference_number' => ['nullable', 'string', 'max:150'],
             'payment_status' => ['nullable', 'in:paid,pending'],
+            'customer_name' => ['nullable', 'string', 'max:255'],
         ]);
 
         $transaction = DB::transaction(function () use ($data) {
@@ -69,6 +70,7 @@ class TransactionController extends Controller
             $transaction = Transaction::create([
                 'kode_transaksi' => $this->nextCode(),
                 'user_id' => auth()->id(),
+                'customer_name' => $data['customer_name'] ?? null,
                 'total' => $total,
                 'payment_type' => $data['payment_type'],
                 'uang_diterima' => $uangDiterima,
@@ -181,6 +183,7 @@ class TransactionController extends Controller
                 'Kode Transaksi' => $transaction->kode_transaksi,
                 'Tanggal' => $transaction->created_at->format('Y-m-d H:i:s'),
                 'Kasir' => $transaction->user?->name ?? 'Unknown',
+                'Pelanggan' => $transaction->customer_name ?? '-',
                 'Metode' => $transaction->payment_type,
                 'Total' => $transaction->total,
                 'Status' => $transaction->payment_status,

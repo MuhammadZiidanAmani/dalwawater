@@ -6,7 +6,7 @@
 <main class="wrap">
     <div>
         <div class="actions">
-            <a class="btn" href="{{ route('dashboard', ['page' => 'reports']) }}">Kembali</a>
+            <a class="btn" href="{{ route('dashboard', ['page' => 'history']) }}">Kembali</a>
             <button class="btn primary" onclick="window.print()">Print Nota</button>
         </div>
         <section class="receipt">
@@ -16,6 +16,9 @@
             <div class="line"><span>No</span><strong>{{ $transaction->kode_transaksi }}</strong></div>
             <div class="line"><span>Tanggal</span><span>{{ $transaction->created_at->format('d/m/Y H:i') }}</span></div>
             <div class="line"><span>Kasir</span><span>{{ $transaction->user->name }}</span></div>
+            @if($transaction->customer_name)
+                <div class="line"><span>Pelanggan</span><span>{{ $transaction->customer_name }}</span></div>
+            @endif
             <hr>
             @php $totalDiscount = 0; @endphp
             @foreach ($transaction->details as $detail)

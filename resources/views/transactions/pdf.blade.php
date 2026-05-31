@@ -22,6 +22,7 @@
                 <th>Kode</th>
                 <th>Tanggal</th>
                 <th>Kasir</th>
+                <th>Pelanggan</th>
                 <th>Metode</th>
                 <th>Status</th>
                 <th>Total</th>
@@ -35,6 +36,7 @@
                 <td>{{ $transaction->kode_transaksi }}</td>
                 <td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td>
                 <td>{{ $transaction->user?->name ?? 'Unknown' }}</td>
+                <td>{{ $transaction->customer_name ?? '-' }}</td>
                 <td>{{ $transaction->payment_type }}</td>
                 <td>{{ $transaction->payment_status ?? 'paid' }}</td>
                 <td class="text-right">Rp {{ number_format($transaction->total, 0, ',', '.') }}</td>
@@ -44,7 +46,7 @@
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="6" class="text-right">Grand Total</th>
+                <th colspan="7" class="text-right">Grand Total</th>
                 <th class="text-right">Rp {{ number_format($grandTotal, 0, ',', '.') }}</th>
             </tr>
         </tfoot>
