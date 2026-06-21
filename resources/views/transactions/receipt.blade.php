@@ -35,13 +35,16 @@
             @if ($totalDiscount > 0)
                 <div class="line"><span>Diskon</span><span>{{ number_format($totalDiscount, 0, ',', '.') }}</span></div>
             @endif
-            <div class="line"><span>Metode</span><span>{{ $transaction->payment_type === 'cash' ? 'Tunai' : 'Transfer' }}</span></div>
+            <div class="line"><span>Status</span><strong>{{ $transaction->payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR' }}</strong></div>
+            <div class="line"><span>Metode</span><span>{{ $transaction->payment_type === 'cash' ? 'Tunai' : ($transaction->payment_type === 'transfer' ? 'Transfer' : '-') }}</span></div>
             @if ($transaction->payment_type === 'transfer')
                 <div class="line"><span>Bank</span><span>{{ $transaction->bank_name ?: '-' }}</span></div>
                 <div class="line"><span>Ref</span><span>{{ $transaction->reference_number ?: '-' }}</span></div>
             @endif
-            <div class="line"><span>Diterima</span><span>{{ number_format($transaction->uang_diterima, 0, ',', '.') }}</span></div>
-            <div class="line"><span>Kembali</span><strong>{{ number_format($transaction->kembalian, 0, ',', '.') }}</strong></div>
+            @if ($transaction->payment_status === 'paid')
+                <div class="line"><span>Diterima</span><span>{{ number_format($transaction->uang_diterima, 0, ',', '.') }}</span></div>
+                <div class="line"><span>Kembali</span><strong>{{ number_format($transaction->kembalian, 0, ',', '.') }}</strong></div>
+            @endif
             <hr>
             <p>Terima kasih<br>Barang yang sudah dibeli tidak dapat ditukar/dikembalikan</p>
         </section>

@@ -37,8 +37,8 @@
                 <td>{{ $transaction->created_at->format('d/m/Y H:i') }}</td>
                 <td>{{ $transaction->user?->name ?? 'Unknown' }}</td>
                 <td>{{ $transaction->customer_name ?? '-' }}</td>
-                <td>{{ $transaction->payment_type }}</td>
-                <td>{{ $transaction->payment_status ?? 'paid' }}</td>
+                <td>{{ $transaction->payment_type === 'cash' ? 'Tunai' : ($transaction->payment_type === 'transfer' ? 'Transfer' : '-') }}</td>
+                <td>{{ $transaction->payment_status === 'paid' ? 'Lunas' : 'Belum Bayar' }}</td>
                 <td class="text-right">Rp {{ number_format($transaction->total, 0, ',', '.') }}</td>
             </tr>
             @php $grandTotal += $transaction->total; @endphp

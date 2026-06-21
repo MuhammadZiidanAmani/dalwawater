@@ -1,0 +1,4 @@
+MariaDB Root Password
+Database Name: dalwa_water
+GitHub Repository
+Backup SQL Location

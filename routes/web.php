@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CashierController;
+use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ReportController;
@@ -32,6 +33,9 @@ Route::middleware(['auth'])->group(function (): void {
     Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])
         ->name('transactions.destroy');
 
+    Route::put('/transactions/{transaction}/settle', [TransactionController::class, 'settle'])
+        ->name('transactions.settle');
+
     Route::put('/profile', [AuthController::class, 'updateProfile'])
         ->name('profile.update');
 
@@ -49,13 +53,13 @@ Route::middleware(['auth'])->group(function (): void {
         Route::delete('/products/{product}', [ProductController::class, 'destroy'])
             ->name('products.destroy');
 
-        Route::post('/categories', [\App\Http\Controllers\CategoryController::class, 'store'])
+        Route::post('/categories', [CategoryController::class, 'store'])
             ->name('categories.store');
 
-        Route::put('/categories/{category}', [\App\Http\Controllers\CategoryController::class, 'update'])
+        Route::put('/categories/{category}', [CategoryController::class, 'update'])
             ->name('categories.update');
 
-        Route::delete('/categories/{category}', [\App\Http\Controllers\CategoryController::class, 'destroy'])
+        Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])
             ->name('categories.destroy');
 
         Route::post('/stock-ins', [StockInController::class, 'store'])

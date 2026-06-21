@@ -36,6 +36,8 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
+        abort_unless($user->isAdmin(), 403);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'username' => [
@@ -79,7 +81,7 @@ class AuthController extends Controller
         ]);
 
         return redirect()
-            ->route('dashboard', ['page' => 'settings-password'])
+            ->route('dashboard', ['page' => $user->isAdmin() ? 'settings-password' : 'account-password'])
             ->with('success', 'Password berhasil diganti.');
     }
 

@@ -10,7 +10,7 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #ebf0fa;
+            background: linear-gradient(145deg, #e8f7ff 0%, #f7fcff 55%, #dff3ff 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -21,7 +21,8 @@
         .login-card {
             background-color: #ffffff;
             border-radius: 20px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+            border: 1px solid #cfeaff;
+            box-shadow: 0 18px 50px rgba(18, 150, 243, 0.12);
             width: 100%;
             max-width: 440px;
             padding: 40px 32px;
@@ -31,7 +32,7 @@
             vertical-align: middle;
         }
         .input-field {
-            border: 1px solid #cbd5e1;
+            border: 1px solid #bfe3fb;
             border-radius: 8px;
             padding: 12px 16px;
             width: 100%;
@@ -41,12 +42,16 @@
             font-size: 15px;
         }
         .input-field:focus {
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            border-color: #0647c1;
+            box-shadow: 0 0 0 3px rgba(6, 71, 193, 0.14);
         }
         .input-field::placeholder {
             color: #94a3b8;
         }
+        #submitBtn { background: #0647c1; box-shadow: 0 8px 20px rgba(6,71,193,.2); }
+        #submitBtn:hover { background: #03328c; }
+        a.text-blue-600 { color: #0647c1 !important; }
+        a.text-blue-600:hover { color: #03328c !important; }
         /* Style adjustments for alerts */
         .notice {
             padding: 12px 14px;
@@ -63,6 +68,12 @@
             background: #ffdad6;
             color: #ba1a1a;
             border: 1px solid #ba1a1a;
+        }
+        @media (max-width: 520px) {
+            body { justify-content: flex-start; padding: 24px 16px; }
+            .login-card { margin: auto 0 !important; padding: 28px 20px; border-radius: 16px; }
+            .login-card h1 { font-size: 24px !important; }
+            body > div:last-of-type { margin-top: 20px; padding-bottom: 8px; }
         }
     </style>
 </head>
@@ -112,7 +123,7 @@
     </div>
 
     <div class="mt-8 text-center text-[13px] text-slate-500 font-medium">
-        CEO Restu Gusti - 2026 &copy;
+        DWater Tegal &copy; RG 2026
     </div>
 
     <script>

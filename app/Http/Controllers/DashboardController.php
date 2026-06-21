@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\StockIn;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-
-use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
@@ -22,51 +22,38 @@ class DashboardController extends Controller
 
         $startDate = $request->query('start_date', Carbon::today()->toDateString());
         $endDate = $request->query('end_date', Carbon::today()->toDateString());
-        $selectedUserId = $request->query('user_id');
+        $selectedUserId = $request->user()?->isAdmin() ? $request->query('user_id') : null;
         $selectedPaymentStatus = $request->query('payment_status');
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
 
         $products = Product::orderBy('nama_barang')->get();
         $activeProducts = Product::where('status', 'active')->orderBy('nama_barang')->get();
-        $transactions = Transaction::with(['user', 'details.product'])->latest()->limit(15)->get();
-        $latestTransaction = Transaction::with(['user', 'details.product'])->latest()->first();
+        $transactions = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest()->limit(15)->get();
+        $latestTransaction = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest()->first();
 
-        $rangeTransactionsQuery = Transaction::whereBetween('created_at', [$start, $end])
+        $rangeTransactionsQuery = Transaction::visibleTo($request->user())
+            ->whereBetween('created_at', [$start, $end])
             ->when($selectedUserId, fn ($query) => $query->where('user_id', $selectedUserId))
             ->when($selectedPaymentStatus, fn ($query) => $query->where('payment_status', $selectedPaymentStatus));
 
-        $topProducts = Product::query()
-            ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
-            ->select('products.*', DB::raw('COALESCE(SUM(transaction_details.qty), 0) as sold_qty'))
-            ->groupBy(
-                'products.id',
-                'products.kode_barang',
-                'products.nama_barang',
-                'products.kategori',
-                'products.harga_modal',
-                'products.harga_jual',
-                'products.stok',
-                'products.satuan',
-                'products.status',
-                'products.created_at',
-                'products.updated_at'
-            )
-            ->orderByDesc('sold_qty')
+        $lowStockProducts = Product::where('stok', '<=', 20)
+            ->orderBy('stok')
+            ->orderBy('nama_barang')
             ->limit(5)
             ->get();
 
-        $salesChart = collect(range(6, 0))->map(function (int $daysAgo): array {
+        $salesChart = collect(range(6, 0))->map(function (int $daysAgo) use ($request): array {
             $date = Carbon::today()->subDays($daysAgo);
 
             return [
                 'label' => $date->translatedFormat('D'),
-                'count' => Transaction::whereDate('created_at', $date)->count(),
+                'count' => Transaction::visibleTo($request->user())->whereDate('created_at', $date)->count(),
             ];
         });
 
         $cashiers = User::whereIn('role', ['admin', 'cashier'])
-            ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())], 'total')
+            ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())->where('payment_status', 'paid')], 'total')
             ->orderBy('role')
             ->orderBy('name')
             ->get();
@@ -84,38 +71,43 @@ class DashboardController extends Controller
             ->limit(6)
             ->get();
 
+        $todayTransactionsQuery = Transaction::visibleTo($request->user())
+            ->whereDate('created_at', Carbon::today());
+
         $stats = [
             'total_stock' => Product::sum('stok'),
-            'today_transactions' => (clone $rangeTransactionsQuery)->count(),
-            'today_income' => (clone $rangeTransactionsQuery)->sum('total'),
-            'today_profit' => DB::table('transaction_details')
+            'today_transactions' => (clone $todayTransactionsQuery)->count(),
+            'today_income' => (clone $todayTransactionsQuery)->where('payment_status', 'paid')->sum('total'),
+            'today_items' => DB::table('transaction_details')
                 ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
-                ->join('products', 'transaction_details.product_id', '=', 'products.id')
-                ->whereBetween('transactions.created_at', [$start, $end])
-                ->when($selectedUserId, fn ($query) => $query->where('transactions.user_id', $selectedUserId))
-                ->when($selectedPaymentStatus, fn ($query) => $query->where('transactions.payment_status', $selectedPaymentStatus))
-                ->sum(DB::raw('(transaction_details.harga - products.harga_modal) * transaction_details.qty')),
+                ->whereIn('transactions.id', (clone $todayTransactionsQuery)->select('id'))
+                ->sum('transaction_details.qty'),
             'low_stock' => Product::where('stok', '<=', 20)->count(),
         ];
 
-
-        
-        $reportQuery = Transaction::with(['user', 'details.product'])->latest();
-        $reportBaseQuery = Transaction::query();
+        $reportQuery = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest();
+        $reportBaseQuery = Transaction::visibleTo($request->user());
 
         if ($startDate && $endDate) {
             $start = Carbon::parse($startDate)->startOfDay();
             $end = Carbon::parse($endDate)->endOfDay();
-            
+
             $reportQuery->whereBetween('created_at', [$start, $end]);
             $reportBaseQuery->whereBetween('created_at', [$start, $end]);
         }
 
         $reportTransactions = $reportQuery->get();
+        $purchaseHistory = $request->user()->isAdmin()
+            ? StockIn::with('product')
+                ->whereBetween('tanggal', [$startDate, $endDate])
+                ->orderByDesc('tanggal')
+                ->orderByDesc('id')
+                ->get()
+            : collect();
 
         $reportStats = [
             'transactions' => (clone $reportBaseQuery)->count(),
-            'income' => (clone $reportBaseQuery)->sum('total'),
+            'income' => (clone $reportBaseQuery)->where('payment_status', 'paid')->sum('total'),
             'items' => DB::table('transaction_details')
                 ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
                 ->whereIn('transactions.id', (clone $reportBaseQuery)->select('id'))
@@ -124,7 +116,7 @@ class DashboardController extends Controller
             'transfer_income' => (clone $reportBaseQuery)->where('payment_type', 'transfer')->sum('total'),
         ];
 
-        $categories = \App\Models\Category::all();
+        $categories = Category::all();
 
         return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
             'categories' => $categories,
@@ -133,7 +125,7 @@ class DashboardController extends Controller
             'stockIns' => StockIn::with('product')->latest()->limit(10)->get(),
             'transactions' => $transactions,
             'latestTransaction' => $latestTransaction,
-            'topProducts' => $topProducts,
+            'lowStockProducts' => $lowStockProducts,
             'salesChart' => $salesChart,
             'cashiers' => $cashiers,
             'monthlyProductSales' => $monthlyProductSales,
@@ -145,6 +137,7 @@ class DashboardController extends Controller
             'reportTransactions' => $reportTransactions,
             'reportStats' => $reportStats,
             'historyTransactions' => (clone $rangeTransactionsQuery)->with(['user', 'details.product'])->latest()->get(),
+            'purchaseHistory' => $purchaseHistory,
         ]);
     }
 }

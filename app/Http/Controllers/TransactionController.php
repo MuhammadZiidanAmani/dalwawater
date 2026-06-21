@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Transaction;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Rap2hpoutre\FastExcel\FastExcel;
 
 class TransactionController extends Controller
 {
@@ -19,12 +21,12 @@ class TransactionController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'exists:products,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
-            'payment_type' => ['required', 'in:cash,transfer'],
+            'payment_type' => ['nullable', 'required_unless:payment_status,pending', 'in:cash,transfer'],
             'discount_per_product' => ['nullable', 'integer', 'min:0'],
             'uang_diterima' => ['nullable', 'integer', 'min:0'],
             'bank_name' => ['nullable', 'string', 'max:100'],
             'reference_number' => ['nullable', 'string', 'max:150'],
-            'payment_status' => ['nullable', 'in:paid,pending'],
+            'payment_status' => ['required', 'in:paid,pending'],
             'customer_name' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -59,9 +61,11 @@ class TransactionController extends Controller
                 ];
             }
 
-            $uangDiterima = $data['payment_type'] === 'cash' ? (int) ($data['uang_diterima'] ?? 0) : $total;
+            $isPending = $data['payment_status'] === 'pending';
+            $paymentType = $isPending ? null : $data['payment_type'];
+            $uangDiterima = $paymentType === 'cash' ? (int) ($data['uang_diterima'] ?? 0) : ($isPending ? 0 : $total);
 
-            if ($data['payment_type'] === 'cash' && $uangDiterima < $total) {
+            if ($paymentType === 'cash' && $uangDiterima < $total) {
                 throw ValidationException::withMessages([
                     'uang_diterima' => 'Uang diterima harus sama dengan atau lebih besar dari total transaksi.',
                 ]);
@@ -72,12 +76,14 @@ class TransactionController extends Controller
                 'user_id' => auth()->id(),
                 'customer_name' => $data['customer_name'] ?? null,
                 'total' => $total,
-                'payment_type' => $data['payment_type'],
+                'payment_type' => $paymentType,
                 'uang_diterima' => $uangDiterima,
                 'kembalian' => max(0, $uangDiterima - $total),
-                'bank_name' => $data['payment_type'] === 'transfer' ? ($data['bank_name'] ?? null) : null,
-                'reference_number' => $data['payment_type'] === 'transfer' ? ($data['reference_number'] ?? null) : null,
-                'payment_status' => $data['payment_type'] === 'transfer' ? ($data['payment_status'] ?? 'paid') : 'paid',
+                'bank_name' => $paymentType === 'transfer' ? ($data['bank_name'] ?? null) : null,
+                'reference_number' => $paymentType === 'transfer' ? ($data['reference_number'] ?? null) : null,
+                'payment_status' => $isPending ? 'pending' : 'paid',
+                'paid_at' => $isPending ? null : now(),
+                'settled_by' => $isPending ? null : auth()->id(),
             ]);
 
             foreach ($details as $detail) {
@@ -119,13 +125,60 @@ class TransactionController extends Controller
                     $detail->product->increment('stok', $detail->qty);
                 }
             }
-            
+
             // Delete details and transaction
             $transaction->details()->delete();
             $transaction->delete();
         });
 
         return redirect()->back()->with('success', 'Transaksi berhasil dihapus dan stok dikembalikan.');
+    }
+
+    public function settle(Request $request, Transaction $transaction): RedirectResponse
+    {
+        $this->authorizeReceipt($transaction);
+
+        $data = $request->validate([
+            'payment_type' => ['required', 'in:cash,transfer'],
+            'uang_diterima' => ['nullable', 'integer', 'min:0'],
+            'bank_name' => ['nullable', 'string', 'max:100'],
+            'reference_number' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        DB::transaction(function () use ($data, $transaction): void {
+            $lockedTransaction = Transaction::lockForUpdate()->findOrFail($transaction->id);
+
+            if ($lockedTransaction->payment_status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'payment_status' => 'Transaksi ini sudah lunas dan tidak dapat diubah kembali.',
+                ]);
+            }
+
+            $uangDiterima = $data['payment_type'] === 'cash'
+                ? (int) ($data['uang_diterima'] ?? 0)
+                : $lockedTransaction->total;
+
+            if ($data['payment_type'] === 'cash' && $uangDiterima < $lockedTransaction->total) {
+                throw ValidationException::withMessages([
+                    'uang_diterima' => 'Uang diterima harus sama dengan atau lebih besar dari total transaksi.',
+                ]);
+            }
+
+            $lockedTransaction->update([
+                'payment_type' => $data['payment_type'],
+                'payment_status' => 'paid',
+                'uang_diterima' => $uangDiterima,
+                'kembalian' => max(0, $uangDiterima - $lockedTransaction->total),
+                'bank_name' => $data['payment_type'] === 'transfer' ? ($data['bank_name'] ?? null) : null,
+                'reference_number' => $data['payment_type'] === 'transfer' ? ($data['reference_number'] ?? null) : null,
+                'paid_at' => now(),
+                'settled_by' => auth()->id(),
+            ]);
+        });
+
+        return redirect()
+            ->route('dashboard', ['page' => 'history'])
+            ->with('success', 'Pembayaran berhasil dilunasi.');
     }
 
     private function nextCode(): string
@@ -149,10 +202,10 @@ class TransactionController extends Controller
     {
         $startDate = $request->query('start_date');
         $endDate = $request->query('end_date');
-        $selectedUserId = $request->query('user_id');
+        $selectedUserId = $request->user()->isAdmin() ? $request->query('user_id') : null;
         $selectedPaymentStatus = $request->query('payment_status');
 
-        $query = Transaction::with(['user', 'details.product'])->latest();
+        $query = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest();
 
         if ($startDate && $endDate) {
             $start = Carbon::parse($startDate)->startOfDay();
@@ -175,10 +228,10 @@ class TransactionController extends Controller
     {
         $transactions = $this->getFilteredTransactions($request);
         $filename = 'riwayat-transaksi-'.Carbon::now()->format('Ymd-His').'.xlsx';
-        
+
         $rows = [];
         foreach ($transactions as $transaction) {
-            $details = $transaction->details->map(fn($d) => $d->product?->nama_barang . ' (' . $d->qty . ')')->implode('; ');
+            $details = $transaction->details->map(fn ($d) => $d->product?->nama_barang.' ('.$d->qty.')')->implode('; ');
             $rows[] = [
                 'Kode Transaksi' => $transaction->kode_transaksi,
                 'Tanggal' => $transaction->created_at->format('Y-m-d H:i:s'),
@@ -187,17 +240,18 @@ class TransactionController extends Controller
                 'Metode' => $transaction->payment_type,
                 'Total' => $transaction->total,
                 'Status' => $transaction->payment_status,
-                'Item Detail' => $details
+                'Item Detail' => $details,
             ];
         }
 
-        return (new \Rap2hpoutre\FastExcel\FastExcel(collect($rows)))->download($filename);
+        return (new FastExcel(collect($rows)))->download($filename);
     }
 
     public function exportPdf(Request $request)
     {
         $transactions = $this->getFilteredTransactions($request);
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('transactions.pdf', ['transactions' => $transactions]);
+        $pdf = Pdf::loadView('transactions.pdf', ['transactions' => $transactions]);
+
         return $pdf->download('riwayat-transaksi-'.Carbon::now()->format('Ymd-His').'.pdf');
     }
 }
