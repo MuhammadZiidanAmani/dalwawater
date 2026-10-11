@@ -3,20 +3,52 @@
 @section('title', 'Nota '.$transaction->kode_transaksi)
 
 @section('content')
+@php
+    $receiptSettings = \App\Models\AppSetting::receiptSettings();
+    $enabled = fn (string $key) => \App\Models\AppSetting::enabled($receiptSettings, $key);
+    $headerLines = array_filter([
+        $receiptSettings['receipt_address_line_1'] ?? '',
+        $receiptSettings['receipt_address_line_2'] ?? '',
+        $receiptSettings['receipt_phone'] ?? '',
+    ]);
+    $footerLines = array_filter([
+        $receiptSettings['receipt_footer_line_1'] ?? '',
+        $receiptSettings['receipt_footer_line_2'] ?? '',
+        $receiptSettings['receipt_footer_line_3'] ?? '',
+    ]);
+@endphp
 <main class="wrap">
     <div>
         <div class="actions">
             <a class="btn" href="{{ route('dashboard', ['page' => 'history']) }}">Kembali</a>
-            <button class="btn primary" onclick="window.print()">Print Nota</button>
+            <button class="btn primary" onclick="window.print()">Cetak Nota</button>
+            <form method="POST" action="{{ route('transactions.thermal-receipt', $transaction) }}">
+                @csrf
+                <button class="btn" type="submit">Cetak Ulang Thermal</button>
+            </form>
         </div>
+        @if(session('success'))
+            <div class="notice ok">{{ session('success') }}</div>
+        @endif
+        @if(session('warning'))
+            <div class="notice warn">{{ session('warning') }}</div>
+        @endif
         <section class="receipt">
-            <h3>Dalwa Water Tegal</h3>
-            <p>Jl. Raya Tegalwangi, Rt. 13/05<br>Kec. Talang - Kab. Tegal<br>CP : 0852-3699-1848</p>
+            <h3>{{ $receiptSettings['receipt_store_name'] }}</h3>
+            @if($headerLines)
+                <p>{!! collect($headerLines)->map(fn ($line) => e($line))->implode('<br>') !!}</p>
+            @endif
             <hr>
-            <div class="line"><span>No</span><strong>{{ $transaction->kode_transaksi }}</strong></div>
+            <div class="line"><span>Nomor</span><strong>{{ $transaction->kode_transaksi }}</strong></div>
             <div class="line"><span>Tanggal</span><span>{{ $transaction->created_at->format('d/m/Y H:i') }}</span></div>
-            <div class="line"><span>Kasir</span><span>{{ $transaction->user->name }}</span></div>
-            @if($transaction->customer_name)
+            @if($enabled('receipt_show_cashier'))
+                <div class="line"><span>Kasir</span><span>{{ $transaction->user->name }}</span></div>
+            @endif
+            @if($transaction->status === 'void')
+                <div class="line"><span>Status Transaksi</span><strong>VOID</strong></div>
+                <div class="line"><span>Alasan</span><span>{{ $transaction->void_reason ?: '-' }}</span></div>
+            @endif
+            @if($enabled('receipt_show_customer') && $transaction->customer_name)
                 <div class="line"><span>Pelanggan</span><span>{{ $transaction->customer_name }}</span></div>
             @endif
             <hr>
@@ -35,18 +67,23 @@
             @if ($totalDiscount > 0)
                 <div class="line"><span>Diskon</span><span>{{ number_format($totalDiscount, 0, ',', '.') }}</span></div>
             @endif
-            <div class="line"><span>Status</span><strong>{{ $transaction->payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR' }}</strong></div>
-            <div class="line"><span>Metode</span><span>{{ $transaction->payment_type === 'cash' ? 'Tunai' : ($transaction->payment_type === 'transfer' ? 'Transfer' : '-') }}</span></div>
-            @if ($transaction->payment_type === 'transfer')
-                <div class="line"><span>Bank</span><span>{{ $transaction->bank_name ?: '-' }}</span></div>
-                <div class="line"><span>Ref</span><span>{{ $transaction->reference_number ?: '-' }}</span></div>
-            @endif
-            @if ($transaction->payment_status === 'paid')
-                <div class="line"><span>Diterima</span><span>{{ number_format($transaction->uang_diterima, 0, ',', '.') }}</span></div>
-                <div class="line"><span>Kembali</span><strong>{{ number_format($transaction->kembalian, 0, ',', '.') }}</strong></div>
+            @if($enabled('receipt_show_payment'))
+                <div class="line"><span>Status</span><strong>{{ $transaction->payment_status === 'paid' ? 'LUNAS' : 'BELUM BAYAR' }}</strong></div>
+                <div class="line"><span>Metode</span><span>{{ $transaction->payment_type === 'cash' ? 'Tunai' : ($transaction->payment_type === 'transfer' ? 'Transfer' : '-') }}</span></div>
+                @if ($transaction->payment_type === 'transfer')
+                    <div class="line"><span>Bank</span><span>{{ $transaction->bank_name ?: '-' }}</span></div>
+                    <div class="line"><span>Ref</span><span>{{ $transaction->reference_number ?: '-' }}</span></div>
+                    <div class="line"><span>Verifikasi</span><span>{{ $transaction->payment_verified_at ? 'Terverifikasi' : 'Belum diverifikasi' }}</span></div>
+                @endif
+                @if ($transaction->payment_status === 'paid')
+                    <div class="line"><span>Diterima</span><span>{{ number_format($transaction->uang_diterima, 0, ',', '.') }}</span></div>
+                    <div class="line"><span>Kembali</span><strong>{{ number_format($transaction->kembalian, 0, ',', '.') }}</strong></div>
+                @endif
             @endif
             <hr>
-            <p>Terima kasih<br>Barang yang sudah dibeli tidak dapat ditukar/dikembalikan</p>
+            @if($footerLines)
+                <p>{!! collect($footerLines)->map(fn ($line) => e($line))->implode('<br>') !!}</p>
+            @endif
         </section>
     </div>
 </main>

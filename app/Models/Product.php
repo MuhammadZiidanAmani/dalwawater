@@ -14,8 +14,11 @@ class Product extends Model
         'harga_modal',
         'harga_jual',
         'stok',
+        'stok_minimal',
         'satuan',
         'status',
+        'foto_produk',
+        'deskripsi',
     ];
 
     protected function casts(): array
@@ -24,6 +27,7 @@ class Product extends Model
             'harga_modal' => 'integer',
             'harga_jual' => 'integer',
             'stok' => 'integer',
+            'stok_minimal' => 'integer',
         ];
     }
 
@@ -35,6 +39,11 @@ class Product extends Model
     public function transactionDetails(): HasMany
     {
         return $this->hasMany(TransactionDetail::class);
+    }
+
+    public function stockAdjustments(): HasMany
+    {
+        return $this->hasMany(StockAdjustment::class);
     }
 
     public function isActive(): bool

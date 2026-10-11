@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,9 @@ class CashierController extends Controller
         $data['email'] = $data['username'].'@dalwa-water.local';
         $data['password'] = Hash::make($data['password']);
 
-        User::create($data);
+        $cashier = User::create($data);
+
+        AuditLog::record('user.created', $cashier);
 
         return redirect()->route('dashboard', ['page' => 'cashiers'])->with('success', 'User kasir berhasil ditambahkan.');
     }
@@ -34,6 +37,8 @@ class CashierController extends Controller
 
         $cashier->update($data);
 
+        AuditLog::record('user.updated', $cashier);
+
         return redirect()->route('dashboard', ['page' => 'cashiers'])->with('success', 'User berhasil diperbarui.');
     }
 
@@ -44,6 +49,8 @@ class CashierController extends Controller
         ]);
 
         $cashier->update(['password' => Hash::make($data['password'])]);
+
+        AuditLog::record('user.password_reset', $cashier);
 
         return redirect()->route('dashboard', ['page' => 'cashiers'])->with('success', 'Password berhasil direset.');
     }

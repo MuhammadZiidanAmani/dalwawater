@@ -1,13 +1,13 @@
 @extends('layouts.auth')
 
-@section('title', 'Reset Password - Dalwa Water')
+@section('title', 'Atur Ulang Kata Sandi - Dalwa Water')
 
 @section('content')
     <main class="auth">
         <section class="login">
             <div class="logo">
                 <span class="drop">@include('partials.icon', ['name' => 'key'])</span>
-                <div><h1>Reset Password</h1><p>Reset password dilakukan melalui menu Manajemen Kasir.</p></div>
+                <div><h1>Atur Ulang Kata Sandi</h1><p>Pengaturan ulang kata sandi dilakukan melalui menu Manajemen Kasir.</p></div>
             </div>
         </section>
     </main>

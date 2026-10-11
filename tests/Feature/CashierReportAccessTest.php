@@ -2,12 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Models\CashierShift;
+use App\Models\Expense;
 use App\Models\Product;
 use App\Models\StockIn;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class CashierReportAccessTest extends TestCase
@@ -28,14 +32,14 @@ class CashierReportAccessTest extends TestCase
             'user_id' => $otherCashier->id,
         ]));
 
-        $response->assertOk()
-            ->assertSee('Riwayat Saya')
-            ->assertSee($ownTransaction->kode_transaksi)
-            ->assertDontSee($otherTransaction->kode_transaksi)
-            ->assertSee('Rp 100.000')
-            ->assertDontSee('Rp 900.000')
-            ->assertDontSee('Semua user')
-            ->assertDontSee('Excel');
+        $response->assertOk()->assertSee('dalwa-react-root');
+
+        $props = $this->reactProps($response);
+        $this->assertFalse($props['user']['isAdmin']);
+        $this->assertSame($ownTransaction->kode_transaksi, $props['historyTransactions'][0]['kode_transaksi']);
+        $this->assertSame(100000, $props['historyTransactions'][0]['total']);
+        $this->assertNull($props['routes']['transactionsExportExcel']);
+        $this->assertNotContains($otherTransaction->kode_transaksi, array_column($props['historyTransactions'], 'kode_transaksi'));
     }
 
     public function test_cashier_can_only_open_their_own_receipt(): void
@@ -83,20 +87,42 @@ class CashierReportAccessTest extends TestCase
             ->assertOk();
     }
 
+    public function test_transaction_receipt_can_be_reprinted_to_thermal_connector(): void
+    {
+        $cashier = $this->cashier('cashier-one');
+        $transaction = $this->transaction($cashier, 'TRX-PRINT-0001', 100000);
+        $path = storage_path('framework/testing/thermal-receipt.prn');
+
+        File::ensureDirectoryExists(dirname($path));
+        File::delete($path);
+        config([
+            'thermal.connector' => 'file',
+            'thermal.printer_name' => $path,
+            'thermal.width' => 32,
+        ]);
+
+        $this->actingAs($cashier)
+            ->post(route('transactions.thermal-receipt', $transaction))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertFileExists($path);
+        $this->assertStringContainsString('DALWA WATER TEGAL', File::get($path));
+    }
+
     public function test_cashier_navigation_is_simple_and_profile_is_read_only(): void
     {
         $cashier = $this->cashier('cashier-one');
 
-        $this->actingAs($cashier)
+        $response = $this->actingAs($cashier)
             ->get('/')
             ->assertOk()
-            ->assertSee('Dashboard')
-            ->assertSee('Transaksi')
-            ->assertSee('Data Stok')
-            ->assertSee('Riwayat Saya')
-            ->assertSee('Informasi Akun')
-            ->assertDontSee('Manajemen Barang')
-            ->assertDontSee('Edit Profil');
+            ->assertSee('dalwa-react-root');
+
+        $props = $this->reactProps($response);
+        $this->assertFalse($props['user']['isAdmin']);
+        $this->assertSame('cashier', $props['user']['role']);
+        $this->assertNull($props['routes']['transactionsExportExcel']);
 
         $this->actingAs($cashier)
             ->put(route('profile.update'), [
@@ -117,7 +143,7 @@ class CashierReportAccessTest extends TestCase
                 'password' => 'password-baru',
                 'password_confirmation' => 'password-baru',
             ])
-            ->assertRedirect(route('dashboard', ['page' => 'account-password']));
+            ->assertRedirect(route('dashboard', ['page' => 'account']));
 
         $this->assertTrue(Hash::check('password-baru', $cashier->fresh()->password));
     }
@@ -130,14 +156,15 @@ class CashierReportAccessTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->actingAs($admin)
+        $response = $this->actingAs($admin)
             ->get('/')
             ->assertOk()
-            ->assertSee('Manajemen Barang')
-            ->assertSee('Laporan')
-            ->assertSee('Manajemen User')
-            ->assertDontSee('Pengaturan')
-            ->assertSee('Edit Profil');
+            ->assertSee('dalwa-react-root');
+
+        $props = $this->reactProps($response);
+        $this->assertTrue($props['user']['isAdmin']);
+        $this->assertSame('admin', $props['user']['role']);
+        $this->assertNotNull($props['routes']['transactionsExportExcel']);
     }
 
     public function test_cashier_can_create_an_unpaid_transaction(): void
@@ -169,6 +196,94 @@ class CashierReportAccessTest extends TestCase
         $this->assertNull($transaction->payment_type);
         $this->assertNull($transaction->paid_at);
         $this->assertNull($transaction->settled_by);
+    }
+
+    public function test_inactive_authenticated_cashier_is_blocked(): void
+    {
+        $cashier = $this->cashier('cashier-one');
+        $cashier->update(['status' => 'inactive']);
+
+        $this->actingAs($cashier)
+            ->get('/')
+            ->assertForbidden();
+
+        $product = Product::create([
+            'kode_barang' => 'BRG-001',
+            'nama_barang' => 'Air Mineral',
+            'kategori' => 'Minuman',
+            'harga_modal' => 3000,
+            'harga_jual' => 5000,
+            'stok' => 10,
+            'satuan' => 'Botol',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($cashier)
+            ->post(route('transactions.store'), [
+                'items' => [['product_id' => $product->id, 'qty' => 1]],
+                'payment_type' => 'cash',
+                'payment_status' => 'paid',
+                'uang_diterima' => 5000,
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_discount_cannot_exceed_product_selling_price(): void
+    {
+        $cashier = $this->cashier('cashier-one');
+        $product = Product::create([
+            'kode_barang' => 'BRG-001',
+            'nama_barang' => 'Air Mineral',
+            'kategori' => 'Minuman',
+            'harga_modal' => 3000,
+            'harga_jual' => 5000,
+            'stok' => 10,
+            'satuan' => 'Botol',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($cashier)
+            ->post(route('transactions.store'), [
+                'items' => [['product_id' => $product->id, 'qty' => 1]],
+                'payment_type' => 'cash',
+                'payment_status' => 'paid',
+                'discount_per_product' => 6000,
+                'uang_diterima' => 5000,
+            ])
+            ->assertSessionHasErrors('discount_per_product');
+
+        $this->assertSame(10, $product->fresh()->stok);
+        $this->assertDatabaseCount('transactions', 0);
+    }
+
+    public function test_transaction_code_sequence_continues_from_existing_transactions(): void
+    {
+        $cashier = $this->cashier('cashier-one');
+        $prefix = 'TRX-'.now()->format('ymd').'-';
+        $this->transaction($cashier, $prefix.'0009', 100000);
+        $product = Product::create([
+            'kode_barang' => 'BRG-001',
+            'nama_barang' => 'Air Mineral',
+            'kategori' => 'Minuman',
+            'harga_modal' => 3000,
+            'harga_jual' => 5000,
+            'stok' => 10,
+            'satuan' => 'Botol',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($cashier)
+            ->post(route('transactions.store'), [
+                'items' => [['product_id' => $product->id, 'qty' => 1]],
+                'payment_type' => 'cash',
+                'payment_status' => 'paid',
+                'uang_diterima' => 5000,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('transactions', [
+            'kode_transaksi' => $prefix.'0010',
+        ]);
     }
 
     public function test_cashier_can_settle_their_own_unpaid_transaction_once(): void
@@ -276,11 +391,13 @@ class CashierReportAccessTest extends TestCase
             'payment_status' => 'paid',
         ];
 
-        $this->actingAs($admin)
+        $response = $this->actingAs($admin)
             ->get('/?'.http_build_query(['page' => 'history', ...$filters]))
-            ->assertOk()
-            ->assertSee(route('transactions.export-excel', $filters))
-            ->assertSee(route('transactions.export-pdf', $filters));
+            ->assertOk();
+
+        $props = $this->reactProps($response);
+        $this->assertSame(route('transactions.export-excel', $filters), $props['routes']['transactionsExportExcel']);
+        $this->assertSame(route('transactions.export-pdf', $filters), $props['routes']['transactionsExportPdf']);
     }
 
     public function test_purchase_history_uses_the_selected_date_range(): void
@@ -310,19 +427,134 @@ class CashierReportAccessTest extends TestCase
                 'end_date' => '2026-06-30',
             ]));
 
-        $response->assertOk()->assertSee('Riwayat Pembelian');
+        $response->assertOk()->assertSee('dalwa-react-root');
+        $props = $this->reactProps($response);
+        $this->assertCount(1, $props['purchaseHistory']);
+        $this->assertSame('Supplier Juni', $props['purchaseHistory'][0]['supplier']);
+
         $purchaseHistory = $response->viewData('purchaseHistory');
         $this->assertTrue($purchaseHistory->contains('supplier', 'Supplier Juni'));
         $this->assertFalse($purchaseHistory->contains('supplier', 'Supplier Mei'));
     }
 
+    public function test_admin_can_create_expense_and_dashboard_payload_uses_expenses(): void
+    {
+        $admin = User::factory()->create([
+            'username' => 'admin',
+            'role' => 'admin',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('expenses.store'), [
+                'spent_at' => '2026-10-09',
+                'category' => 'Listrik',
+                'description' => 'Bayar listrik toko',
+                'amount' => 850000,
+            ])
+            ->assertRedirect(route('dashboard', ['page' => 'operations']));
+
+        $this->assertDatabaseHas('expenses', [
+            'user_id' => $admin->id,
+            'category' => 'Listrik',
+            'description' => 'Bayar listrik toko',
+            'amount' => 850000,
+        ]);
+
+        Expense::create([
+            'user_id' => $admin->id,
+            'spent_at' => '2026-09-30',
+            'category' => 'Sewa',
+            'description' => 'Sewa lama',
+            'amount' => 5000000,
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->get('/?'.http_build_query([
+                'page' => 'operations',
+                'start_date' => '2026-10-01',
+                'end_date' => '2026-10-31',
+            ]))
+            ->assertOk();
+
+        $props = $this->reactProps($response);
+        $this->assertCount(1, $props['expenses']);
+        $this->assertSame('Listrik', $props['expenses'][0]['category']);
+        $this->assertSame(850000, $props['expenses'][0]['amount']);
+        $this->assertSame(route('expenses.store'), $props['routes']['expensesStore']);
+        $this->assertSame(route('expenses.print', [
+            'start_date' => '2026-10-01',
+            'end_date' => '2026-10-31',
+        ]), $props['routes']['expensesPrint']);
+        $this->assertSame(route('expenses.update', Expense::where('category', 'Listrik')->first()), $props['expenses'][0]['update_url']);
+        $this->assertSame(route('expenses.destroy', Expense::where('category', 'Listrik')->first()), $props['expenses'][0]['destroy_url']);
+    }
+
+    public function test_admin_can_update_delete_and_print_expenses(): void
+    {
+        $admin = User::factory()->create([
+            'username' => 'admin',
+            'role' => 'admin',
+            'status' => 'active',
+        ]);
+        $expense = Expense::create([
+            'user_id' => $admin->id,
+            'spent_at' => '2026-10-09',
+            'category' => 'Listrik',
+            'description' => 'Bayar listrik toko',
+            'amount' => 850000,
+        ]);
+
+        $this->actingAs($admin)
+            ->put(route('expenses.update', $expense), [
+                'spent_at' => '2026-10-10',
+                'category' => 'Operasional',
+                'description' => 'Biaya operasional toko',
+                'amount' => 950000,
+            ])
+            ->assertRedirect(route('dashboard', ['page' => 'operations']));
+
+        $this->assertDatabaseHas('expenses', [
+            'id' => $expense->id,
+            'spent_at' => '2026-10-10 00:00:00',
+            'category' => 'Operasional',
+            'description' => 'Biaya operasional toko',
+            'amount' => 950000,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('expenses.print', [
+                'start_date' => '2026-10-01',
+                'end_date' => '2026-10-31',
+            ]))
+            ->assertOk()
+            ->assertSee('Laporan Pengeluaran Toko')
+            ->assertSee('Biaya operasional toko');
+
+        $this->actingAs($admin)
+            ->delete(route('expenses.destroy', $expense))
+            ->assertRedirect(route('dashboard', ['page' => 'operations']));
+
+        $this->assertDatabaseMissing('expenses', [
+            'id' => $expense->id,
+        ]);
+    }
+
     private function cashier(string $username): User
     {
-        return User::factory()->create([
+        $cashier = User::factory()->create([
             'username' => $username,
             'role' => 'cashier',
             'status' => 'active',
         ]);
+
+        CashierShift::create([
+            'user_id' => $cashier->id,
+            'opened_at' => now(),
+            'opening_cash' => 0,
+        ]);
+
+        return $cashier;
     }
 
     private function transaction(User $user, string $code, int $total): Transaction
@@ -336,5 +568,19 @@ class CashierReportAccessTest extends TestCase
             'kembalian' => 0,
             'payment_status' => 'paid',
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reactProps(TestResponse $response): array
+    {
+        preg_match("/window\\.__DALWA_APP__ = JSON\\.parse\\('(.+)'\\);/s", $response->getContent(), $matches);
+
+        $this->assertNotEmpty($matches, 'React props were not rendered.');
+
+        $json = json_decode('"'.$matches[1].'"', true, flags: JSON_THROW_ON_ERROR);
+
+        return json_decode($json, true, flags: JSON_THROW_ON_ERROR);
     }
 }

@@ -12,10 +12,18 @@ class ReportController extends Controller
     {
         $filename = 'laporan-penjualan-'.Carbon::now()->format('Ymd-His').'.csv';
         $transactionsQuery = Transaction::with(['user', 'details.product'])->latest();
-        
+
         $request = request();
-        $startDate = $request->query('start_date');
-        $endDate = $request->query('end_date');
+        $filters = $request->validate([
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'payment_status' => ['nullable', 'in:paid,pending'],
+            'payment_type' => ['nullable', 'in:cash,transfer'],
+        ]);
+
+        $startDate = $filters['start_date'] ?? null;
+        $endDate = $filters['end_date'] ?? null;
 
         if ($startDate && $endDate) {
             $start = Carbon::parse($startDate)->startOfDay();
@@ -23,10 +31,22 @@ class ReportController extends Controller
             $transactionsQuery->whereBetween('created_at', [$start, $end]);
         }
 
+        if (! empty($filters['user_id'])) {
+            $transactionsQuery->where('user_id', $filters['user_id']);
+        }
+
+        if (! empty($filters['payment_status'])) {
+            $transactionsQuery->where('payment_status', $filters['payment_status']);
+        }
+
+        if (! empty($filters['payment_type'])) {
+            $transactionsQuery->where('payment_type', $filters['payment_type']);
+        }
+
         $transactions = $transactionsQuery->get();
 
         $rows = [
-            ['No Transaksi', 'Tanggal', 'Kasir', 'Produk', 'Qty', 'Harga', 'Subtotal', 'Metode', 'Total'],
+            ['No Transaksi', 'Tanggal', 'Kasir', 'Produk', 'Qty', 'Harga', 'Subtotal', 'Metode', 'Status Bayar', 'Status Transaksi', 'Diskon', 'Total'],
         ];
 
         foreach ($transactions as $transaction) {
@@ -40,6 +60,9 @@ class ReportController extends Controller
                     $detail->harga,
                     $detail->subtotal,
                     $transaction->payment_type,
+                    $transaction->payment_status,
+                    $transaction->status,
+                    $transaction->discount_total,
                     $transaction->total,
                 ];
             }

@@ -1,542 +1,617 @@
-# PRD — Aplikasi Manajemen Stok & Penjualan Dalwa Water
+# PRD - Dalwa Water Management System
+
+## 1. Informasi Produk
+
+**Nama produk:** Dalwa Water Management System
+**Jenis produk:** Aplikasi POS dan manajemen stok untuk operasional penjualan Dalwa Water.
+**Pengguna utama:** Admin dan Kasir.
+**Status dokumen:** PRD operasional sebelum eksekusi lanjutan aplikasi.
+**Status implementasi saat ini:** Aplikasi Laravel dengan UI React/Vite untuk area login setelah autentikasi, serta Blade sebagai bootstrap view dan fallback.
+
+### Tujuan Produk
 
-## Informasi Project
+1. Mempercepat proses transaksi penjualan air.
+2. Menjaga akurasi stok barang secara otomatis.
+3. Menyediakan laporan penjualan, stok masuk, stok keluar, dan kasir.
+4. Membatasi akses berdasarkan role Admin dan Kasir.
+5. Membuat alur POS lebih sesuai SOP: buka kasir, transaksi, pelunasan, pembatalan, stok masuk, rekonsiliasi, dan tutup kasir.
+
+## 2. Masalah yang Diselesaikan
 
-### Nama Aplikasi
+1. Transaksi manual rawan salah hitung.
+2. Stok barang tidak selalu sinkron dengan penjualan.
+3. Laporan harian dan periode sulit direkap cepat.
+4. Akses kasir perlu dibatasi agar tidak dapat mengubah data master secara bebas.
+5. Dokumen operasional seperti bukti barang masuk perlu tersimpan lebih aman.
+6. Pembatalan transaksi, diskon, pending payment, dan tutup kasir perlu memiliki jejak audit yang jelas.
 
-**Dalwa Water Management System**
+## 3. User Role dan Hak Akses
 
-### Tujuan Aplikasi
+### 3.1 Admin
 
-Membantu operasional penjualan dan pengelolaan stok produk air minum Dalwa Water agar lebih cepat, rapi, dan terintegrasi mulai dari:
+Admin dapat:
 
-* Input barang masuk
-* Pengelolaan stok
-* Transaksi penjualan
-* Cetak nota
-* Pengelolaan kasir
-* Laporan penjualan
+1. Mengakses dashboard global.
+2. Mengelola produk dan kategori.
+3. Mengelola stok masuk.
+4. Melihat dan mengelola seluruh transaksi.
+5. Mengelola kasir.
+6. Melihat laporan penjualan, stok, dan kasir.
+7. Mengakses dokumen stok masuk.
+8. Mengaktifkan atau menonaktifkan user.
+
+Admin tidak boleh:
+
+1. Menghapus data transaksi tanpa audit.
+2. Mengubah stok tanpa alasan dan catatan.
+3. Mengubah histori pembayaran tanpa jejak perubahan.
+
+### 3.2 Kasir
+
+Kasir dapat:
+
+1. Login ke aplikasi.
+2. Melihat dashboard kasir pribadi.
+3. Membuat transaksi penjualan.
+4. Mencetak atau melihat nota.
+5. Melihat riwayat transaksi miliknya.
+6. Melunasi transaksi pending miliknya sesuai kebijakan.
+
+Kasir tidak dapat:
+
+1. Mengelola produk.
+2. Mengelola kategori.
+3. Mengelola stok masuk.
+4. Mengelola user atau kasir lain.
+5. Mengakses laporan global admin.
+6. Membatalkan transaksi tanpa aturan otorisasi.
+
+### 3.3 User Nonaktif
+
+1. User nonaktif tidak boleh masuk ke area aplikasi.
+2. Sesi user nonaktif harus ditolak saat mengakses halaman setelah login.
+3. User nonaktif diarahkan keluar dengan pesan yang jelas.
+
+## 4. Scope MVP
 
----
+### 4.1 Termasuk MVP
+
+1. Login dan logout.
+2. Role Admin dan Kasir.
+3. Dashboard sesuai role.
+4. CRUD produk dan kategori untuk Admin.
+5. Stok masuk untuk Admin.
+6. Transaksi penjualan untuk Admin dan Kasir.
+7. Status pembayaran: lunas dan belum bayar.
+8. Metode pembayaran: cash dan transfer.
+9. Nota transaksi.
+10. Laporan penjualan dengan filter tanggal.
+11. Laporan kasir.
+12. Penyimpanan dokumen stok masuk secara private.
+13. Penomoran transaksi otomatis per tanggal.
 
-# 1. Latar Belakang
+### 4.2 Di Luar MVP, Masuk Backlog SOP
 
-Saat ini pencatatan stok dan transaksi masih dilakukan secara manual sehingga:
+1. Shift kasir lengkap: buka kasir dan tutup kasir.
+2. Cash drawer reconciliation.
+3. Void transaksi dengan approval.
+4. Retur dan refund.
+5. Stock opname.
+6. Audit log detail.
+7. Approval diskon di atas batas tertentu.
+8. Verifikasi pembayaran transfer.
+9. Integrasi QRIS.
+10. Barcode scanner.
 
-* Sulit memantau stok barang
-* Risiko salah hitung transaksi
-* Pembuatan nota lambat
-* Sulit membuat laporan penjualan
-* Tidak ada pembatasan akses antara admin dan kasir
+## 5. SOP POS Operasional
 
-Aplikasi ini dibuat untuk mendigitalisasi seluruh proses penjualan Dalwa Water.
+### 5.1 SOP Buka Kasir
 
----
+Status: backlog prioritas tinggi.
 
-# 2. User Role
+Alur ideal:
 
-## 2.1 Admin
+1. Kasir login.
+2. Kasir membuka shift.
+3. Kasir mengisi modal awal kas.
+4. Sistem menyimpan waktu buka shift, user kasir, dan nominal modal awal.
+5. Kasir hanya dapat membuat transaksi setelah shift aktif.
 
-Hak akses:
+Catatan implementasi:
 
-* Login
-* Dashboard
-* CRUD Barang
-* Input Barang Masuk
-* Kelola Stok
-* CRUD Kasir
-* Melihat semua transaksi
-* Cetak nota
-* Melihat laporan
-* Export laporan
-* Kelola metode pembayaran
+1. Saat ini aplikasi belum wajib membuka shift sebelum transaksi.
+2. Perlu tabel `cashier_shifts`.
+3. Transaksi perlu terhubung ke shift aktif.
 
-Admin TIDAK melakukan pembatasan transaksi.
+### 5.2 SOP Transaksi Penjualan
 
----
+Alur:
 
-## 2.2 Kasir
+1. Kasir memilih produk.
+2. Sistem menampilkan harga dan stok tersedia.
+3. Kasir mengisi jumlah barang.
+4. Sistem menghitung subtotal, diskon, dan total.
+5. Kasir memilih status pembayaran:
+   - Lunas.
+   - Belum bayar.
+6. Kasir memilih metode pembayaran:
+   - Cash.
+   - Transfer.
+7. Sistem memvalidasi stok.
+8. Sistem membuat nomor transaksi otomatis.
+9. Sistem mengurangi stok produk.
+10. Sistem menyimpan detail transaksi.
+11. Sistem menampilkan nota.
 
-Hak akses:
+Aturan:
 
-* Login
-* Melakukan transaksi penjualan
-* Cetak nota
-* Melihat stok barang
-* Input jumlah uang diterima
-* Memilih metode pembayaran
+1. Jumlah item harus lebih dari 0.
+2. Stok tidak boleh minus.
+3. Diskon tidak boleh melebihi total sebelum diskon.
+4. Transaksi pending tetap mengurangi stok karena barang sudah keluar.
+5. Kode transaksi harus unik.
 
-Kasir TIDAK BISA:
+### 5.3 SOP Pelunasan Transaksi Belum Bayar
 
-* Menambah stok
-* Mengedit barang
-* Menghapus barang
-* Mengakses laporan
-* CRUD kasir
+Alur:
 
----
+1. Admin atau kasir terkait membuka transaksi belum bayar.
+2. User memilih aksi pelunasan.
+3. User memilih metode pembayaran pelunasan.
+4. Sistem mengubah status menjadi lunas.
+5. Sistem menyimpan waktu pelunasan dan user yang memproses.
 
-# 3. Fitur Utama
+Catatan implementasi:
 
-# 3.1 Login System
+1. Saat ini status pembayaran sudah ada.
+2. Perlu field tambahan untuk audit pelunasan:
+   - `paid_at`
+   - `paid_by`
+   - `payment_verified_at` untuk transfer bila diperlukan.
 
-### Deskripsi
+### 5.4 SOP Diskon
 
-Sistem autentikasi untuk Admin dan Kasir.
+Aturan:
 
-### Fitur
+1. Diskon nominal tidak boleh lebih besar dari subtotal.
+2. Diskon harus tersimpan di transaksi.
+3. Diskon besar perlu approval Admin.
 
-* Login username/password
-* Role access
-* Logout
-* Session login
+Status:
 
----
+1. Validasi diskon tidak melebihi total sudah wajib.
+2. Approval diskon belum tersedia dan masuk backlog.
 
-# 3.2 Dashboard
+### 5.5 SOP Void atau Pembatalan Transaksi
 
-## Dashboard Admin
+Status: perlu diperbaiki sebelum production serius.
 
-Menampilkan:
+Alur ideal:
 
-* Total stok barang
-* Total transaksi hari ini
-* Pendapatan hari ini
-* Produk terlaris
-* Grafik penjualan
+1. User memilih transaksi.
+2. User mengisi alasan pembatalan.
+3. Jika kasir, pembatalan butuh approval Admin.
+4. Sistem mengubah status transaksi menjadi void.
+5. Sistem mengembalikan stok.
+6. Sistem menyimpan siapa yang membatalkan, waktu pembatalan, dan alasan.
 
-## Dashboard Kasir
+Catatan penting:
 
-Menampilkan:
+1. Transaksi tidak boleh dihapus permanen tanpa audit.
+2. Pembatalan harus menggunakan status `void` atau soft delete.
+3. Perlu field:
+   - `voided_at`
+   - `voided_by`
+   - `void_reason`
+   - `status`
 
-* Transaksi hari ini
-* Total penjualan
-* Shortcut transaksi baru
+### 5.6 SOP Retur dan Refund
 
----
+Status: backlog.
 
-# 3.3 Manajemen Barang
+Alur ideal:
 
-### CRUD Barang
+1. Admin memilih transaksi asal.
+2. Admin memilih item yang diretur.
+3. Sistem memvalidasi jumlah retur.
+4. Sistem mengembalikan stok bila barang fisik kembali.
+5. Sistem mencatat nilai refund bila uang dikembalikan.
+6. Sistem menyimpan alasan retur.
 
-Field:
+### 5.7 SOP Tutup Kasir
 
-* Kode Barang
-* Nama Barang
-* Kategori
-* Harga Modal
-* Harga Jual
-* Stok
-* Satuan
-* Status aktif/nonaktif
+Status: backlog prioritas tinggi.
 
-### Fitur
+Alur ideal:
 
-* Tambah barang
-* Edit barang
-* Hapus barang
-* Cari barang
-* Filter kategori
+1. Kasir membuka halaman tutup kasir.
+2. Sistem menghitung total transaksi cash, transfer, pending, dan void.
+3. Kasir mengisi jumlah uang fisik.
+4. Sistem menghitung selisih.
+5. Kasir mengisi catatan bila ada selisih.
+6. Admin dapat melihat laporan shift.
 
----
+Data yang dibutuhkan:
 
-# 3.4 Barang Masuk
+1. Modal awal.
+2. Total cash.
+3. Total transfer.
+4. Total pending.
+5. Total void.
+6. Uang fisik akhir.
+7. Selisih.
+8. Catatan kasir.
 
-### Fungsi
+### 5.8 SOP Barang Masuk
 
-Admin dapat menambahkan stok barang masuk.
+Alur:
 
-### Field
+1. Admin memilih produk.
+2. Admin mengisi jumlah masuk.
+3. Admin mengisi tanggal barang masuk.
+4. Admin dapat mengunggah dokumen pendukung.
+5. Sistem menambah stok produk.
+6. Sistem menyimpan histori stok masuk.
 
-* Tanggal
-* Barang
-* Jumlah masuk
-* Supplier
-* Keterangan
+Aturan:
 
-### Sistem
+1. Jumlah barang masuk harus lebih dari 0.
+2. Dokumen pendukung tidak boleh diakses publik langsung.
+3. Dokumen diakses melalui route aplikasi dengan otorisasi.
 
-Saat barang masuk:
+### 5.9 SOP Stock Opname
 
-* Stok otomatis bertambah
+Status: backlog prioritas tinggi.
 
----
+Alur ideal:
 
-# 3.5 Sistem Transaksi Penjualan
+1. Admin membuat sesi stock opname.
+2. Admin mencatat stok fisik per produk.
+3. Sistem membandingkan stok sistem dan stok fisik.
+4. Admin mengisi alasan selisih.
+5. Sistem membuat penyesuaian stok dengan audit.
 
-### Alur
+### 5.10 SOP Rekonsiliasi Transfer
 
-1. Kasir memilih barang
-2. Input jumlah beli
-3. Sistem menghitung subtotal
-4. Pilih metode pembayaran
-5. Input uang diterima
-6. Sistem menghitung kembalian
-7. Simpan transaksi
-8. Cetak nota
+Status: backlog.
 
----
+Alur ideal:
 
-## Field Transaksi
+1. Transaksi transfer masuk status menunggu verifikasi.
+2. Admin mencocokkan mutasi atau bukti transfer.
+3. Admin menandai transfer terverifikasi.
+4. Sistem menyimpan waktu dan user verifikator.
 
-* No Transaksi
-* Tanggal
-* Kasir
-* Barang
-* Qty
-* Harga
-* Subtotal
-* Total
-* Metode Pembayaran
-* Uang Diterima
-* Kembalian
+## 6. Fitur Produk
 
----
+### 6.1 Login dan Keamanan
 
-# 3.6 Metode Pembayaran
+1. User login menggunakan email dan password.
+2. Login dibatasi throttle untuk mencegah brute force.
+3. Password harus disimpan dalam bentuk hash.
+4. User nonaktif tidak boleh mengakses aplikasi.
+5. Area aplikasi harus dilindungi middleware autentikasi.
 
-## Tunai
+### 6.2 Dashboard
 
-Field:
+Admin melihat:
 
-* Uang diterima
-* Kembalian otomatis
+1. Total penjualan.
+2. Jumlah transaksi.
+3. Produk dengan stok rendah.
+4. Ringkasan pembayaran.
+5. Ringkasan transaksi terbaru.
 
-## Transfer
+Kasir melihat:
 
-Field:
+1. Total transaksi miliknya.
+2. Total penjualan miliknya.
+3. Transaksi terbaru miliknya.
+4. Pending payment miliknya.
 
-* Nama Bank
-* Nomor Referensi
-* Status pembayaran
+### 6.3 Produk dan Kategori
 
----
+Admin dapat:
 
-# 3.7 Nota Penjualan
+1. Membuat produk.
+2. Mengubah produk.
+3. Menghapus produk sesuai aturan.
+4. Mengatur kategori.
+5. Mengatur harga.
+6. Melihat stok.
 
-### Isi Nota
+Aturan:
 
-* Logo Dalwa Water
-* Nama toko
-* Nomor transaksi
-* Tanggal
-* Nama kasir
-* List barang
-* Qty
-* Harga
-* Total
-* Metode pembayaran
-* Uang diterima
-* Kembalian
-* Footer ucapan terima kasih
+1. Produk dengan histori transaksi sebaiknya tidak dihapus permanen.
+2. Produk dapat dinonaktifkan bila tidak dijual lagi.
 
-### Format
+### 6.4 Transaksi
 
-* Print thermal 58mm/80mm
-* PDF download
+Field minimum transaksi:
 
----
+1. Kode transaksi.
+2. User kasir.
+3. Tanggal transaksi.
+4. Status pembayaran.
+5. Metode pembayaran.
+6. Subtotal.
+7. Diskon.
+8. Total.
+9. Catatan.
 
-# 3.8 Manajemen Kasir
+Nomor transaksi:
 
-### CRUD Kasir
+1. Format: `TRX-yymmdd-0001`.
+2. Nomor urut reset per tanggal.
+3. Nomor harus aman dari duplikasi saat transaksi bersamaan.
 
-Field:
+### 6.5 Nota
 
-* Nama
-* Username
-* Password
-* Role
-* Status aktif
+Nota harus menampilkan:
 
-### Fitur
+1. Nama outlet.
+2. Kode transaksi.
+3. Tanggal transaksi.
+4. Nama kasir.
+5. Daftar item.
+6. Qty, harga, subtotal.
+7. Diskon.
+8. Total bayar.
+9. Status pembayaran.
+10. Metode pembayaran.
 
-* Tambah kasir
-* Edit kasir
-* Nonaktifkan kasir
-* Reset password
+### 6.6 Laporan
 
----
+Laporan minimum:
 
-# 3.9 Laporan
+1. Laporan penjualan per periode.
+2. Laporan transaksi per kasir.
+3. Laporan barang masuk.
+4. Laporan stok produk.
+5. Laporan pending payment.
 
-## Laporan Harian
+Filter:
 
-* Total transaksi
-* Total pendapatan
-* Produk terjual
+1. Tanggal mulai.
+2. Tanggal akhir.
+3. Kasir.
+4. Status pembayaran.
+5. Metode pembayaran.
 
-## Laporan Bulanan
+## 7. Data dan Database
 
-* Rekap penjualan
-* Grafik penjualan
-* Produk terlaris
+### 7.1 Tabel Utama
 
-## Export
+`users`
 
-* PDF
-* Excel
+1. Menyimpan admin dan kasir.
+2. Memiliki role.
+3. Memiliki status aktif atau nonaktif.
 
----
+`categories`
 
-# 4. Flow Sistem
+1. Menyimpan kategori produk.
 
-## Flow Barang Masuk
+`products`
 
-Admin → Input Barang Masuk → Stok Bertambah
+1. Menyimpan produk, harga, stok, dan kategori.
 
----
+`stock_ins`
 
-## Flow Penjualan
+1. Menyimpan histori barang masuk.
+2. Menyimpan dokumen pendukung bila ada.
 
-Kasir → Pilih Barang → Input Qty → Pilih Pembayaran → Input Uang → Cetak Nota → Stok Berkurang
+`transactions`
 
----
+1. Menyimpan header transaksi.
+2. Menyimpan total, status, metode pembayaran, dan kasir.
 
-# 5. Struktur Database
+`transaction_details`
 
-## Tabel users
+1. Menyimpan item transaksi.
+2. Menyimpan harga saat transaksi agar histori tidak berubah bila harga produk berubah.
 
-* id
-* name
-* username
-* password
-* role
-* status
+`transaction_sequences`
 
----
+1. Menyimpan urutan nomor transaksi per tanggal.
+2. Digunakan agar kode transaksi tidak duplikat.
 
-## Tabel products
+### 7.2 Tabel Backlog SOP
 
-* id
-* kode_barang
-* nama_barang
-* kategori
-* harga_modal
-* harga_jual
-* stok
-* satuan
-* status
+`cashier_shifts`
 
----
+1. Menyimpan buka dan tutup kasir.
 
-## Tabel stock_ins
+`audit_logs`
 
-* id
-* product_id
-* qty
-* supplier
-* tanggal
-* keterangan
+1. Menyimpan aktivitas penting user.
 
----
+`stock_opnames`
 
-## Tabel transactions
+1. Menyimpan sesi stock opname.
 
-* id
-* kode_transaksi
-* user_id
-* total
-* payment_type
-* uang_diterima
-* kembalian
-* created_at
+`stock_adjustments`
 
----
+1. Menyimpan koreksi stok.
 
-## Tabel transaction_details
+`payment_verifications`
 
-* id
-* transaction_id
-* product_id
-* qty
-* harga
-* subtotal
+1. Menyimpan verifikasi pembayaran transfer.
 
----
+`refunds`
 
-# 6. Validasi Sistem
+1. Menyimpan retur dan refund.
 
-## Validasi Stok
+## 8. Validasi dan Business Rules
 
-* Tidak bisa menjual melebihi stok
+1. Tanggal awal filter tidak boleh lebih besar dari tanggal akhir.
+2. Qty transaksi harus integer dan lebih dari 0.
+3. Qty transaksi tidak boleh melebihi stok tersedia.
+4. Harga transaksi diambil dari harga produk saat transaksi dibuat.
+5. Diskon tidak boleh negatif.
+6. Diskon tidak boleh melebihi subtotal.
+7. Status pembayaran hanya boleh dari daftar resmi.
+8. Metode pembayaran hanya boleh dari daftar resmi.
+9. User nonaktif tidak boleh membuat transaksi.
+10. Dokumen stok masuk harus divalidasi tipe dan ukuran file.
+11. Dokumen private tidak boleh disajikan langsung dari public storage tanpa otorisasi.
 
-## Validasi Pembayaran
+## 9. Audit, Security, dan Compliance
 
-* Tunai harus ≥ total transaksi
+### 9.1 Keamanan Minimum
 
-## Validasi Role
+1. Jangan commit file `.env`.
+2. Jangan commit backup database.
+3. Jangan commit file kredensial.
+4. Gunakan hash untuk password.
+5. Gunakan CSRF protection.
+6. Gunakan middleware role.
+7. Gunakan validasi request.
+8. Batasi percobaan login.
 
-* Kasir tidak bisa akses menu admin
+### 9.2 Audit Minimum
 
----
+Aktivitas berikut harus memiliki audit trail:
 
-# 7. Teknologi yang Digunakan
+1. Login gagal berulang.
+2. Membuat transaksi.
+3. Melunasi transaksi.
+4. Membatalkan transaksi.
+5. Mengubah produk.
+6. Mengubah stok.
+7. Mengunggah atau mengakses dokumen stok masuk.
+8. Menutup shift kasir.
 
-## Backend
+### 9.3 Risiko Saat Ini
 
-* PHP 8.5
-* Laravel 13
+1. Pembatalan transaksi perlu diarahkan ke mekanisme void dengan alasan.
+2. Shift kasir belum tersedia.
+3. Stock opname belum tersedia.
+4. Audit log belum lengkap.
+5. Verifikasi transfer belum tersedia.
 
-## Frontend
+## 10. UI/UX
 
-* Tailwind CSS
-* Blade Template
-* Alpine.js
+### 10.1 Prinsip UI
 
-## Database
+1. Tampilan utama harus fokus pada pekerjaan kasir dan admin.
+2. Navigasi harus jelas dan konsisten.
+3. Tombol aksi utama harus mudah ditemukan.
+4. Tabel transaksi harus mudah difilter dan dipindai.
+5. Form transaksi harus meminimalkan kesalahan input.
+6. Status seperti lunas, belum bayar, stok rendah, dan void harus terlihat jelas.
 
-* MySQL
+### 10.2 Framework UI
 
-## Authentication
+1. Area aplikasi menggunakan React dengan Vite.
+2. Styling mengikuti pendekatan TailwindAdmin.
+3. Blade tetap digunakan sebagai bootstrap view Laravel dan fallback.
+4. Layout harus penuh mengikuti layar aplikasi, bukan tampilan sempit seperti landing page.
 
-* Laravel Breeze
+### 10.3 Tipografi
 
-## Export
+1. Font utama aplikasi menggunakan `DM Sans`, dengan fallback `ui-sans-serif`, `system-ui`, dan `sans-serif`.
+2. Tipografi harus terasa seperti aplikasi operasional: jelas, ringkas, mudah dipindai, dan tidak bergaya landing page.
+3. Heading halaman utama menggunakan ukuran sekitar 24px dengan line-height sekitar 32px dan weight 600.
+4. Heading panel atau section menggunakan ukuran sekitar 16px dengan weight 600.
+5. Heading card kecil menggunakan ukuran sekitar 14px dengan weight 600.
+6. Body text dan isi tabel menggunakan ukuran sekitar 14px.
+7. Teks bantuan, metadata, subtitle, dan keterangan sekunder menggunakan ukuran sekitar 13px dengan warna muted.
+8. Angka penting pada metric card menggunakan ukuran sekitar 28px dengan weight 700.
+9. Label form menggunakan ukuran sekitar 14px dengan weight 600.
+10. Tombol menggunakan ukuran sekitar 14px dengan weight 600, kecuali tombol utama login dapat menggunakan weight 500 sesuai gaya TailwindAdmin.
+11. Badge status menggunakan ukuran sekitar 12px dengan weight 700.
+12. Letter spacing tetap normal atau 0; jangan memakai tracking negatif.
+13. Line-height harus cukup longgar untuk keterbacaan, terutama pada tabel, form, dan ringkasan operasional.
+14. Hirarki teks harus konsisten di seluruh aplikasi: page title, subtitle, panel title, card title, value, body, metadata.
+15. Teks tidak boleh terpotong atau bertumpuk pada layar mobile; gunakan wrapping atau ukuran yang lebih kecil bila ruang terbatas.
 
-* Laravel Excel
-* DomPDF
+## 11. Teknologi
 
----
+Stack target:
 
-# 8. UI/UX Concept
+1. PHP 8.3 atau lebih baru.
+2. Laravel 13.
+3. React.
+4. Vite.
+5. Tailwind CSS.
+6. MySQL atau MariaDB untuk production.
+7. SQLite untuk testing lokal bila diperlukan.
+8. DomPDF untuk PDF.
+9. FastExcel atau Laravel Excel untuk export laporan.
 
-## Style
+## 12. Acceptance Criteria
 
-Modern Dashboard POS
+### 12.1 Auth
 
-## Warna
+1. Admin aktif dapat login.
+2. Kasir aktif dapat login.
+3. User nonaktif tidak dapat mengakses aplikasi.
+4. Percobaan login berlebihan terkena throttle.
 
-* Biru
-* Putih
-* Abu modern
+### 12.2 Transaksi
 
-## Karakteristik
+1. User dapat membuat transaksi dengan item valid.
+2. Stok berkurang setelah transaksi dibuat.
+3. Sistem menolak transaksi bila stok kurang.
+4. Sistem menolak diskon melebihi subtotal.
+5. Kode transaksi unik dan berurutan per tanggal.
+6. Nota dapat ditampilkan setelah transaksi dibuat.
 
-* Clean
-* Minimalis
-* Responsive
-* Cepat digunakan kasir
+### 12.3 Pelunasan
 
----
+1. Transaksi belum bayar dapat diubah menjadi lunas.
+2. Sistem menyimpan siapa yang memproses pelunasan.
+3. Sistem menyimpan waktu pelunasan.
 
-# 9. Future Feature (Opsional)
+### 12.4 Produk dan Stok
 
-* Barcode Scanner
-* QRIS Payment
-* Multi Cabang
-* Customer Member
-* Riwayat Hutang
-* WhatsApp Nota
-* Monitoring stok minimum
+1. Admin dapat membuat dan mengubah produk.
+2. Admin dapat mencatat barang masuk.
+3. Stok bertambah setelah barang masuk.
+4. Dokumen barang masuk hanya dapat diakses user berotorisasi.
 
----
+### 12.5 Laporan
 
-# 10. Target Output
+1. Admin dapat melihat laporan berdasarkan tanggal.
+2. Filter tanggal tervalidasi.
+3. Kasir hanya melihat data yang menjadi haknya.
 
-Aplikasi siap digunakan untuk:
+## 13. Backlog Prioritas SOP POS
 
-* Manajemen stok Dalwa Water
-* Penjualan harian
-* Cetak nota otomatis
-* Monitoring laporan penjualan
-* Multi user Admin & Kasir
+### Prioritas Tinggi
 
+1. Shift kasir: buka kasir dan tutup kasir.
+2. Void transaksi dengan alasan dan approval.
+3. Audit log aktivitas penting.
+4. Stock opname dan penyesuaian stok.
+5. Pelunasan pending payment dengan audit.
 
-# 11. struktur
+### Prioritas Menengah
 
- resources/
-└── views/
-    ├── layouts/
-    │   ├── app.blade.php
-    │   ├── auth.blade.php
-    │   ├── guest.blade.php
-    │   └── print.blade.php
-    │
-    ├── partials/
-    │   ├── navbar.blade.php
-    │   ├── sidebar.blade.php
-    │   ├── footer.blade.php
-    │   ├── breadcrumbs.blade.php
-    │   ├── alerts.blade.php
-    │   └── scripts.blade.php
-    │
-    ├── components/
-    │   ├── cards/
-    │   │   ├── stat-card.blade.php
-    │   │   ├── chart-card.blade.php
-    │   │   └── table-card.blade.php
-    │   │
-    │   ├── forms/
-    │   │   ├── input.blade.php
-    │   │   ├── select.blade.php
-    │   │   ├── textarea.blade.php
-    │   │   ├── checkbox.blade.php
-    │   │   └── button.blade.php
-    │   │
-    │   ├── modals/
-    │   │   ├── delete-modal.blade.php
-    │   │   └── confirm-modal.blade.php
-    │   │
-    │   └── tables/
-    │       ├── table.blade.php
-    │       └── pagination.blade.php
-    │
-    ├── auth/
-    │   ├── login.blade.php
-    │   ├── forgot-password.blade.php
-    │   ├── reset-password.blade.php
-    │   └── verify-email.blade.php
-    │
-    ├── dashboard/
-    │   ├── admin.blade.php
-    │   └── kasir.blade.php
-    │
-    ├── products/
-    │   ├── index.blade.php
-    │   ├── create.blade.php
-    │   ├── edit.blade.php
-    │   ├── show.blade.php
-    │   └── partials/
-    │       └── form.blade.php
-    │
-    ├── stock-in/
-    │   ├── index.blade.php
-    │   ├── create.blade.php
-    │   └── partials/
-    │       └── form.blade.php
-    │
-    ├── transactions/
-    │   ├── index.blade.php
-    │   ├── create.blade.php
-    │   ├── show.blade.php
-    │   ├── receipt.blade.php
-    │   └── partials/
-    │       ├── cart-table.blade.php
-    │       ├── payment-form.blade.php
-    │       └── product-search.blade.php
-    │
-    ├── cashiers/
-    │   ├── index.blade.php
-    │   ├── create.blade.php
-    │   ├── edit.blade.php
-    │   └── partials/
-    │       └── form.blade.php
-    │
-    ├── reports/
-    │   ├── daily.blade.php
-    │   ├── monthly.blade.php
-    │   ├── sales.blade.php
-    │   └── export.blade.php
-    │
-    ├── settings/
-    │   ├── profile.blade.php
-    │   ├── application.blade.php
-    │   └── printer.blade.php
-    │
-    ├── errors/
-    │   ├── 403.blade.php
-    │   ├── 404.blade.php
-    │   └── 500.blade.php
-    │
-    └── welcome.blade.php
+1. Verifikasi transfer.
+2. Retur dan refund.
+3. Approval diskon.
+4. Minimum stock alert.
+5. Laporan laba sederhana bila harga modal tersedia.
+
+### Prioritas Rendah
+
+1. Barcode scanner.
+2. QRIS.
+3. Kirim nota WhatsApp.
+4. Multi cabang.
+5. Member atau pelanggan tetap.
+
+## 14. Definition of Done
+
+Sebuah fitur dianggap selesai bila:
+
+1. Sesuai role dan hak akses.
+2. Memiliki validasi request.
+3. Tidak merusak stok atau histori transaksi.
+4. Memiliki audit untuk aksi kritis.
+5. Memiliki tampilan yang konsisten.
+6. Memiliki test untuk alur utama dan validasi penting.
+7. Tidak membuka data sensitif ke publik.
+8. Tidak bergantung pada file `.env`, backup SQL, atau kredensial yang masuk Git.

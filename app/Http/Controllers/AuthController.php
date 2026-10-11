@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -22,12 +23,18 @@ class AuthController extends Controller
             'password' => $credentials['password'],
             'status' => 'active',
         ], $request->boolean('remember'))) {
+            AuditLog::record('auth.login_failed', null, [
+                'username' => $credentials['username'],
+            ]);
+
             return back()
                 ->withErrors(['username' => 'Username atau password tidak sesuai.'])
                 ->onlyInput('username');
         }
 
         $request->session()->regenerate();
+
+        AuditLog::record('auth.login_success', $request->user());
 
         return redirect()->route('dashboard');
     }
@@ -56,8 +63,10 @@ class AuthController extends Controller
 
         $user->update($validated);
 
+        AuditLog::record('user.profile_updated', $user);
+
         return redirect()
-            ->route('dashboard', ['page' => 'settings-profile'])
+            ->route('dashboard', ['page' => 'cashiers'])
             ->with('success', 'Profil berhasil diperbarui.');
     }
 
@@ -80,8 +89,10 @@ class AuthController extends Controller
             'password' => $validated['password'],
         ]);
 
+        AuditLog::record('user.password_updated', $user);
+
         return redirect()
-            ->route('dashboard', ['page' => $user->isAdmin() ? 'settings-password' : 'account-password'])
+            ->route('dashboard', ['page' => $user->isAdmin() ? 'cashiers' : 'account'])
             ->with('success', 'Password berhasil diganti.');
     }
 

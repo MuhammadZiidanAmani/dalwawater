@@ -1,0 +1,3049 @@
+import React, { FormEvent, useEffect, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Badge, Button, Card, DataTable, Field, FormGrid, FormStack, Tabs } from './components';
+
+type User = {
+    id: number;
+    name: string;
+    username: string;
+    email: string;
+    role: 'admin' | 'cashier';
+    status: string;
+    isAdmin: boolean;
+};
+
+type Product = {
+    id: number;
+    kode_barang: string;
+    nama_barang: string;
+    kategori: string;
+    harga_modal: number;
+    harga_jual: number;
+    stok: number;
+    stok_minimal: number;
+    satuan: string;
+    status: string;
+    foto_produk_url: string | null;
+    deskripsi: string | null;
+    update_url: string | null;
+    destroy_url: string | null;
+};
+
+type Transaction = {
+    id: number;
+    kode_transaksi: string;
+    created_at: string;
+    created_at_input: string;
+    cashier: string;
+    customer_name: string | null;
+    payment_type: string | null;
+    payment_status: 'paid' | 'pending';
+    status: 'completed' | 'void';
+    discount_total: number;
+    void_reason: string | null;
+    payment_verified_at: string | null;
+    total: number;
+    uang_diterima: number;
+    kembalian: number;
+    receipt_url: string;
+    thermal_receipt_url: string;
+    update_url: string | null;
+    settle_url: string;
+    destroy_url: string;
+    verify_transfer_url: string | null;
+    details: Array<{ id: number; product_id: number | null; product: string; qty: number; harga: number; subtotal: number }>;
+};
+
+type StockIn = {
+    id: number;
+    invoice_number: string | null;
+    product_id: number | null;
+    tanggal: string;
+    tanggal_input: string | null;
+    expired_at: string | null;
+    expired_at_input: string | null;
+    supplier: string | null;
+    product: string;
+    product_code: string | null;
+    product_category: string | null;
+    qty: number;
+    satuan: string | null;
+    harga_beli: number;
+    harga_jual: number;
+    discount_percent: number;
+    discount_amount: number;
+    subtotal: number;
+    barcode: string | null;
+    amount: number;
+    keterangan: string | null;
+    nota_url: string | null;
+    surat_jalan_url: string | null;
+    update_url: string | null;
+    destroy_url: string | null;
+};
+
+type Expense = {
+    id: number;
+    spent_at: string;
+    spent_at_input: string;
+    category: string;
+    description: string;
+    amount: number;
+    user: string;
+    attachment_url: string | null;
+    update_url: string | null;
+    destroy_url: string | null;
+};
+
+type Category = {
+    id: number;
+    nama_kategori: string;
+    update_url: string | null;
+    destroy_url: string | null;
+};
+
+type Supplier = {
+    id: number;
+    nama: string;
+    nomor_telepon: string | null;
+    email: string | null;
+    alamat: string | null;
+    update_url: string | null;
+    destroy_url: string | null;
+};
+
+type Cashier = {
+    id: number;
+    name: string;
+    username: string;
+    role: string;
+    status: string;
+    today_sales: number;
+    update_url: string | null;
+    reset_password_url: string | null;
+};
+
+type CashierShift = {
+    id: number;
+    cashier: string;
+    opened_at: string;
+    closed_at: string | null;
+    opening_cash: number;
+    closing_cash: number | null;
+    expected_cash: number;
+    cash_sales: number;
+    transfer_sales: number;
+    pending_sales: number;
+    void_total: number;
+    difference: number;
+    notes: string | null;
+    close_url: string;
+};
+
+type StockOpname = {
+    id: number;
+    date: string;
+    user: string;
+    notes: string | null;
+    adjustments: Array<{ product: string; system_stock: number; actual_stock: number; difference: number }>;
+};
+
+type AuditLog = {
+    id: number;
+    time: string;
+    user: string;
+    action: string;
+};
+
+type SalesPoint = {
+    label: string;
+    count: number;
+};
+
+type ReceiptSettings = {
+    receipt_store_name: string;
+    receipt_address_line_1: string;
+    receipt_address_line_2: string;
+    receipt_phone: string;
+    receipt_footer_line_1: string;
+    receipt_footer_line_2: string;
+    receipt_footer_line_3: string;
+    receipt_paper_width: string;
+    receipt_show_cashier: string;
+    receipt_show_customer: string;
+    receipt_show_payment: string;
+};
+
+type AppProps = {
+    csrf: string;
+    user: User;
+    routes: Record<string, string | null>;
+    settingsTab: string | null;
+    receiptSettings: ReceiptSettings;
+    stats: Record<string, number>;
+    reportStats: Record<string, number>;
+    products: Product[];
+    activeProducts: Product[];
+    lowStockProducts: Product[];
+    transactions: Transaction[];
+    historyTransactions: Transaction[];
+    stockEntries: StockIn[];
+    purchaseHistory: StockIn[];
+    expenses: Expense[];
+    categories: Category[];
+    suppliers: Supplier[];
+    cashiers: Cashier[];
+    currentShift: CashierShift | null;
+    recentShifts: CashierShift[];
+    stockOpnames: StockOpname[];
+    auditLogs: AuditLog[];
+    salesChart: SalesPoint[];
+    filters: Record<string, string | null>;
+    flash: {
+        success: string | null;
+        warning: string | null;
+    };
+};
+
+type CartItem = Product & { qty: number; discountType: 'amount' | 'percent'; discountValue: number };
+type Theme = 'light' | 'dark';
+type NavLeaf = { id: string; label: string; icon: string };
+type NavGroup = { heading: string; items: NavLeaf[] };
+
+declare global {
+    interface Window {
+        __DALWA_APP__?: AppProps;
+    }
+}
+
+const rupiah = (value: number | string | null | undefined) =>
+    new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        maximumFractionDigits: 0,
+    })
+        .format(Number(value ?? 0))
+        .replace(/\s/g, ' ');
+
+const rupiahCompact = (value: number | string | null | undefined) => {
+    const number = Number(value ?? 0);
+
+    if (number >= 1_000_000_000) {
+        return `Rp ${(number / 1_000_000_000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} M`;
+    }
+
+    if (number >= 1_000_000) {
+        return `Rp ${(number / 1_000_000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} Jt`;
+    }
+
+    if (number >= 1_000) {
+        return `Rp ${(number / 1_000).toLocaleString('id-ID', { maximumFractionDigits: 0 })} Rb`;
+    }
+
+    return rupiah(number);
+};
+
+const numericOnly = (value: string | number | null | undefined) => String(value ?? '').replace(/\D/g, '');
+const formatThousands = (value: string | number | null | undefined) => {
+    const digits = numericOnly(value);
+
+    return digits ? Number(digits).toLocaleString('id-ID') : '';
+};
+const parseDecimal = (value: string | number | null | undefined) => Number(String(value ?? '').replace(',', '.'));
+const normalizeSearchText = (value: string | number | null | undefined) =>
+    String(value ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+const matchesSearchText = (source: string, query: string) => {
+    const keyword = query.trim().toLowerCase();
+
+    if (!keyword) {
+        return true;
+    }
+
+    return source.toLowerCase().includes(keyword) || normalizeSearchText(source).includes(normalizeSearchText(keyword));
+};
+const calculateProfitPercent = (purchasePrice: string | number, salePrice: string | number) => {
+    const buy = Number(numericOnly(purchasePrice));
+    const sell = Number(numericOnly(salePrice));
+
+    if (buy <= 0 || sell <= 0) {
+        return '';
+    }
+
+    return Number((((sell - buy) / buy) * 100).toFixed(2)).toLocaleString('id-ID');
+};
+
+const todayInputDate = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+};
+
+const navFor = (isAdmin: boolean): NavGroup[] => isAdmin ? [
+    {
+        heading: 'Halaman',
+        items: [
+            { id: 'dashboard', label: 'Beranda', icon: 'dashboard' },
+            { id: 'transactions', label: 'Transaksi', icon: 'cashier' },
+            { id: 'operations', label: 'Pengeluaran', icon: 'wallet' },
+        ],
+    },
+    {
+        heading: 'Data Stok',
+        items: [
+            { id: 'stock', label: 'Stok', icon: 'stock' },
+        ],
+    },
+    {
+        heading: 'Data Laporan',
+        items: [
+            { id: 'history', label: 'Laporan', icon: 'report' },
+            { id: 'transaction-history', label: 'Riwayat Transaksi', icon: 'history' },
+        ],
+    },
+    {
+        heading: 'Data Master',
+        items: [
+            { id: 'categories', label: 'Kategori', icon: 'category' },
+            { id: 'inventory', label: 'Produk', icon: 'product' },
+            { id: 'suppliers', label: 'Suplier', icon: 'supplier' },
+        ],
+    },
+] : [
+    {
+        heading: 'Halaman',
+        items: [
+            { id: 'dashboard', label: 'Beranda', icon: 'dashboard' },
+            { id: 'transactions', label: 'Transaksi', icon: 'cashier' },
+            { id: 'operations', label: 'Operasional', icon: 'clipboard' },
+        ],
+    },
+    {
+        heading: 'Data Laporan',
+        items: [
+            { id: 'history', label: 'Riwayat Transaksi', icon: 'history' },
+        ],
+    },
+    {
+        heading: 'Data Master',
+        items: [
+            { id: 'inventory', label: 'Produk', icon: 'product' },
+        ],
+    },
+];
+
+function NavIcon({ name }: { name: string }) {
+    const common = {
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeLinecap: 'round' as const,
+        strokeLinejoin: 'round' as const,
+        strokeWidth: 1.9,
+        viewBox: '0 0 24 24',
+    };
+
+    if (name === 'dashboard') {
+        return <svg {...common}><rect x="4" y="4" width="6" height="6" rx="1.5" /><rect x="14" y="4" width="6" height="4" rx="1.3" /><rect x="4" y="14" width="6" height="6" rx="1.5" /><rect x="14" y="12" width="6" height="8" rx="1.5" /></svg>;
+    }
+
+    if (name === 'cashier') {
+        return <svg {...common}><path d="M6 8h12a2 2 0 0 1 2 2v8H4v-8a2 2 0 0 1 2-2Z" /><path d="M8 8V5h8v3" /><path d="M7 13h.01" /><path d="M11 13h.01" /><path d="M15 13h2" /><path d="M7 17h10" /></svg>;
+    }
+
+    if (name === 'management') {
+        return <svg {...common}><path d="M12 3 4 7.5 12 12l8-4.5L12 3Z" /><path d="m4 12 8 4.5 8-4.5" /><path d="M8 9.8v5.4" /><path d="M16 9.8v5.4" /></svg>;
+    }
+
+    if (name === 'product') {
+        return <svg {...common}><path d="M10 3h4" /><path d="M11 3v3.2c0 .5-.2 1-.6 1.4l-1 1A4.8 4.8 0 0 0 8 12v6a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-6a4.8 4.8 0 0 0-1.4-3.4l-1-1A2 2 0 0 1 13 6.2V3" /><path d="M8 14h8" /><path d="M10 18h4" /></svg>;
+    }
+
+    if (name === 'receipt') {
+        return <svg {...common}><path d="M7 3h10a2 2 0 0 1 2 2v16l-3-1.5L13 21l-3-1.5L7 21l-3-1.5V5a2 2 0 0 1 2-2Z" /><path d="M8 8h8" /><path d="M8 12h8" /><path d="M8 16h5" /></svg>;
+    }
+
+    if (name === 'boxes') {
+        return <svg {...common}><path d="m12 3 7 4-7 4-7-4 7-4Z" /><path d="m5 11 7 4 7-4" /><path d="m5 15 7 4 7-4" /></svg>;
+    }
+
+    if (name === 'category') {
+        return <svg {...common}><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H9l2 2h6.5A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-9Z" /><path d="M8 11h8" /><path d="M8 14h5" /></svg>;
+    }
+
+    if (name === 'stock') {
+        return <svg {...common}><path d="M4 10 12 5l8 5v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-9Z" /><path d="M8 20v-7h8v7" /><path d="M9.5 16h5" /><path d="M12 5V3" /></svg>;
+    }
+
+    if (name === 'supplier') {
+        return <svg {...common}><path d="M4 7h10v10H4z" /><path d="M14 10h3l3 3v4h-6v-7Z" /><path d="M6.5 19a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" /><path d="M17.5 19a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" /><path d="M7 10h4" /></svg>;
+    }
+
+    if (name === 'report') {
+        return <svg {...common}><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M14 3v5h5" /><path d="M8 16h2v2H8z" /><path d="M12 13h2v5h-2z" /><path d="M16 11h2v7h-2z" /></svg>;
+    }
+
+    if (name === 'history') {
+        return <svg {...common}><path d="M4 12a8 8 0 1 0 2.34-5.66" /><path d="M4 4v5h5" /><path d="M12 8v5l3 2" /></svg>;
+    }
+
+    if (name === 'edit') {
+        return <svg {...common}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" /></svg>;
+    }
+
+    if (name === 'print') {
+        return <svg {...common}><path d="M7 8V4h10v4" /><path d="M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" /><path d="M7 14h10v6H7z" /><path d="M17 12h.01" /></svg>;
+    }
+
+    if (name === 'cancel') {
+        return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></svg>;
+    }
+
+    if (name === 'trash') {
+        return <svg {...common}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="m19 6-1 14H6L5 6" /><path d="M10 11v5" /><path d="M14 11v5" /></svg>;
+    }
+
+    if (name === 'chart') {
+        return <svg {...common}><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-3" /></svg>;
+    }
+
+    if (name === 'wallet') {
+        return <svg {...common}><path d="M5 7.5h12a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3h11" /><path d="M16 13h4" /><path d="M16 13a1 1 0 1 0 0 .01" /><path d="M6 7.5l7-3" /></svg>;
+    }
+
+    if (name === 'clipboard') {
+        return <svg {...common}><path d="M9 4h6l1 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2l1-2Z" /><path d="M9 10h6" /><path d="M9 14h6" /><path d="M9 18h3" /></svg>;
+    }
+
+    if (name === 'users') {
+        return <svg {...common}><path d="M16 19a4 4 0 0 0-8 0" /><circle cx="12" cy="9" r="3" /><path d="M22 19a3.5 3.5 0 0 0-4-3.5" /><path d="M2 19a3.5 3.5 0 0 1 4-3.5" /><path d="M18 8.5a2.5 2.5 0 0 1 0 5" /><path d="M6 8.5a2.5 2.5 0 0 0 0 5" /></svg>;
+    }
+
+    if (name === 'settings') {
+        return <svg {...common}><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.88.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.88V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z" /></svg>;
+    }
+
+    return <svg {...common}><path d="M4 13h6V4H4v9Z" /><path d="M14 20h6v-9h-6v9Z" /><path d="M4 20h6v-3H4v3Z" /><path d="M14 7h6V4h-6v3Z" /></svg>;
+}
+
+function ThemeIcon({ theme }: { theme: Theme }) {
+    const common = {
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeLinecap: 'round' as const,
+        strokeLinejoin: 'round' as const,
+        strokeWidth: 1.9,
+        viewBox: '0 0 24 24',
+        'aria-hidden': true,
+    };
+
+    if (theme === 'dark') {
+        return <svg {...common}><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></svg>;
+    }
+
+    return <svg {...common}><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></svg>;
+}
+
+function getInitialTheme(): Theme {
+    const stored = window.localStorage.getItem('dalwa-theme');
+
+    if (stored === 'light' || stored === 'dark') {
+        return stored;
+    }
+
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function postForm(action: string | null, csrf: string, fields: Record<string, string | number | null | undefined> = {}) {
+    if (!action) {
+        return;
+    }
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = action;
+    form.style.display = 'none';
+
+    const token = document.createElement('input');
+    token.type = 'hidden';
+    token.name = '_token';
+    token.value = csrf;
+    form.appendChild(token);
+
+    Object.entries(fields).forEach(([name, value]) => {
+        if (value === undefined || value === null) {
+            return;
+        }
+
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = String(value);
+        form.appendChild(input);
+    });
+
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function App({ props }: { props: AppProps }) {
+    const initialPage = new URLSearchParams(window.location.search).get('page') || 'dashboard';
+    const [page, setPage] = useState(initialPage);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [profileOpen, setProfileOpen] = useState(false);
+    const [notificationOpen, setNotificationOpen] = useState(false);
+    const [theme, setTheme] = useState<Theme>(getInitialTheme);
+    const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+    const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+    const [editingStockIn, setEditingStockIn] = useState<StockIn | null>(null);
+    const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+    const [flashVisible, setFlashVisible] = useState(Boolean(props.flash.success || props.flash.warning));
+    const navGroups = navFor(props.user.isAdmin);
+    const nav = navGroups.flatMap((group) => group.items);
+    const bottomNav = nav;
+    const lowStockProducts = props.products.filter((product) => product.stok <= product.stok_minimal);
+    const notificationCount = lowStockProducts.length;
+
+    useEffect(() => {
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        window.localStorage.setItem('dalwa-theme', theme);
+    }, [theme]);
+
+    useEffect(() => {
+        const hasFlash = Boolean(props.flash.success || props.flash.warning);
+        setFlashVisible(hasFlash);
+
+        if (!hasFlash) {
+            return;
+        }
+
+        const timer = window.setTimeout(() => setFlashVisible(false), 4200);
+
+        return () => window.clearTimeout(timer);
+    }, [props.flash.success, props.flash.warning]);
+
+    const activate = (nextPage: string) => {
+        setPage(nextPage);
+        setSidebarOpen(false);
+        setProfileOpen(false);
+        setNotificationOpen(false);
+        if (nextPage !== 'product-edit') {
+            setEditingProduct(null);
+        }
+        if (nextPage !== 'category-edit') {
+            setEditingCategory(null);
+        }
+        if (nextPage !== 'supplier-edit') {
+            setEditingSupplier(null);
+        }
+        if (nextPage !== 'stock-edit') {
+            setEditingStockIn(null);
+        }
+        if (nextPage !== 'transaction-edit') {
+            setEditingTransaction(null);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set('page', nextPage);
+        window.history.replaceState(null, '', url.toString());
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const resolvedPage = page === 'cashiers' ? 'settings' : page === 'product-create' || page === 'product-edit' ? 'inventory' : page === 'category-create' || page === 'category-edit' ? 'categories' : page === 'supplier-create' || page === 'supplier-edit' ? 'suppliers' : page === 'stockin' || page === 'stock-create' || page === 'stock-edit' || page === 'stock-purchase' ? 'stock' : page === 'transaction-edit' ? 'transaction-history' : page;
+
+    return (
+        <div className="min-h-screen bg-background text-foreground">
+            {flashVisible && (props.flash.success || props.flash.warning) && (
+                <div className="fixed inset-0 z-[80] grid place-items-center bg-black/20 px-4 backdrop-blur-[1px]">
+                    <div className="w-full max-w-sm rounded-md border border-ld bg-card p-5 text-center shadow-2xl">
+                        <span className={`mx-auto grid size-11 place-items-center rounded-full ${props.flash.warning ? 'bg-lightwarning text-warningemphasis' : 'bg-lightsuccess text-successemphasis'}`}>
+                            <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                                {props.flash.warning ? <path d="M12 9v4M12 17h.01M10.3 4.5 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0Z" /> : <path d="M20 6 9 17l-5-5" />}
+                            </svg>
+                        </span>
+                        <strong className="mt-4 block text-base font-semibold text-foreground">{props.flash.warning ? 'Perhatian' : 'Berhasil'}</strong>
+                        <p className="mt-2 text-sm font-medium text-muted-foreground">{props.flash.warning || props.flash.success}</p>
+                        <button className="mt-5 inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90" type="button" onClick={() => setFlashVisible(false)}>
+                            Tutup
+                        </button>
+                    </div>
+                </div>
+            )}
+            <div
+                className={`fixed inset-0 z-40 bg-black/45 backdrop-blur-sm transition-opacity xl:hidden ${sidebarOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+                onClick={() => setSidebarOpen(false)}
+            />
+            {(profileOpen || notificationOpen) && <button className="fixed inset-0 z-20 cursor-default bg-transparent" type="button" aria-label="Tutup menu" onClick={() => { setProfileOpen(false); setNotificationOpen(false); }} />}
+
+            <aside
+                className={`fixed left-0 top-0 z-50 flex h-screen w-[270px] flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-transform duration-200 dark:bg-sidebar dark:text-sidebar-foreground xl:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+            >
+                <div className="flex min-h-[76px] items-center gap-3 overflow-hidden border-b border-border px-6">
+                    <span className="grid size-14 shrink-0 place-items-center overflow-hidden">
+                        <img className="h-14 w-14 object-contain" src="/images/logo-dalwa-water.png" alt="Logo Dalwa Water" />
+                    </span>
+                    <span className="grid min-w-0 gap-0.5">
+                        <strong className="truncate text-lg font-semibold leading-6 text-foreground">Dalwa Water</strong>
+                        <small className="truncate text-xs font-medium leading-4 text-muted-foreground">Tegal - Jawa Tengah</small>
+                    </span>
+                    <button
+                        className="ms-auto grid size-10 place-items-center rounded-full text-darklink hover:bg-lightprimary hover:text-primary xl:hidden"
+                        type="button"
+                        aria-label="Tutup menu"
+                        onClick={() => setSidebarOpen(false)}
+                    >
+                        x
+                    </button>
+                </div>
+
+                <nav className="app-sidebar-scroll min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                    <div className="grid gap-5">
+                        {navGroups.map((group) => (
+                            <div className="grid gap-1" key={group.heading}>
+                                <div className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                                    {group.heading}
+                                </div>
+                                {group.items.map((item) => {
+                                    const active = resolvedPage === item.id;
+
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            className={`mt-1 flex min-h-10 w-full items-center gap-3 rounded-sm px-3 text-left text-sm font-medium leading-5 transition [&_svg]:size-[21px] ${active ? 'bg-lightprimary text-primary' : 'text-sidebar-foreground hover:bg-lightprimary hover:text-primary'}`}
+                                            type="button"
+                                            onClick={() => activate(item.id)}
+                                        >
+                                            <span className="grid size-6 place-items-center"><NavIcon name={item.icon} /></span>
+                                            <span className="truncate">{item.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                </nav>
+
+            </aside>
+
+            <div className="min-h-screen w-full bg-background xl:ps-[270px]">
+                <header className="sticky top-0 z-30 border-b border-border bg-background/95 shadow-sm backdrop-blur dark:bg-background/95">
+                    <nav className="flex min-h-[76px] items-center justify-between gap-4 rounded-none px-6 py-4 sm:ps-6 sm:pe-10">
+                        <button
+                            className="relative grid size-10 place-items-center rounded-full text-foreground after:absolute after:size-10 after:rounded-full after:bg-transparent hover:text-primary hover:after:bg-lightprimary xl:hidden"
+                            type="button"
+                            aria-label="Buka menu"
+                            onClick={() => setSidebarOpen(true)}
+                        >
+                            <span className="text-lg leading-none">☰</span>
+                        </button>
+
+                        <div className="hidden min-w-0 xl:block" />
+
+                        <div className="flex items-center gap-1 sm:gap-2">
+                            <button
+                                className="relative grid size-10 place-items-center rounded-full px-2 text-foreground after:absolute after:size-10 after:rounded-full after:bg-transparent hover:text-primary hover:after:bg-lightprimary [&_svg]:size-5"
+                                type="button"
+                                aria-label={theme === 'dark' ? 'Mode terang' : 'Mode gelap'}
+                                onClick={() => {
+                                    setProfileOpen(false);
+                                    setNotificationOpen(false);
+                                    setTheme(theme === 'dark' ? 'light' : 'dark');
+                                }}
+                            >
+                                <ThemeIcon theme="dark" />
+                            </button>
+                            <div className="relative z-30">
+                                <button
+                                    className={`relative grid size-10 place-items-center rounded-full px-2 text-foreground after:absolute after:size-10 after:rounded-full hover:text-primary hover:after:bg-lightprimary [&_svg]:size-5 ${notificationOpen ? 'text-primary after:bg-lightprimary' : 'after:bg-transparent'}`}
+                                    type="button"
+                                    aria-label="Notifikasi"
+                                    aria-expanded={notificationOpen}
+                                    title="Notifikasi"
+                                    onClick={() => {
+                                        setProfileOpen(false);
+                                        setNotificationOpen((open) => !open);
+                                    }}
+                                >
+                                    {notificationCount > 0 && <span className="absolute right-1 top-1 z-10 grid min-w-4 place-items-center rounded-full bg-error px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-background">{notificationCount}</span>}
+                                    <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 18.5a3.5 3.5 0 0 1-7 0" /><path d="M19 17H5l1.5-2.2V10a5.5 5.5 0 1 1 11 0v4.8L19 17Z" /><path d="M12 3V2" /></svg>
+                                </button>
+                                <div className={`${notificationOpen ? 'grid' : 'hidden'} absolute right-0 top-[calc(100%+10px)] z-50 w-80 gap-2 rounded-md border border-ld bg-card p-3 shadow-md`}>
+                                    <div className="px-1">
+                                        <strong className="block text-sm font-semibold text-foreground">Notifikasi</strong>
+                                        <span className="text-xs font-medium text-muted-foreground">{notificationCount > 0 ? `${notificationCount} notifikasi perlu dicek` : 'Tidak ada notifikasi baru.'}</span>
+                                    </div>
+                                    {notificationCount > 0 ? (
+                                        <button className="rounded-md border border-warning/30 bg-lightwarning px-3 py-3 text-left transition hover:border-warning" type="button" onClick={() => activate('stock')}>
+                                            <strong className="block text-sm font-semibold text-warningemphasis">{notificationCount} barang memiliki stok di bawah minimum</strong>
+                                            <span className="mt-1 block text-xs font-medium text-muted-foreground">
+                                                {lowStockProducts.slice(0, 3).map((product) => product.nama_barang).join(', ')}
+                                                {lowStockProducts.length > 3 ? ` dan ${lowStockProducts.length - 3} lainnya` : ''}
+                                            </span>
+                                        </button>
+                                    ) : (
+                                        <div className="rounded-md border border-ld px-3 py-3 text-sm font-medium text-muted-foreground">Stok produk aman.</div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="relative z-30">
+                                <button
+                                    className={`relative grid size-10 place-items-center rounded-full px-2 text-foreground after:absolute after:size-10 after:rounded-full hover:text-primary hover:after:bg-lightprimary [&_svg]:size-5 ${profileOpen ? 'text-primary after:bg-lightprimary' : 'after:bg-transparent'}`}
+                                    type="button"
+                                    aria-label="Profil"
+                                    aria-expanded={profileOpen}
+                                    onClick={() => {
+                                        setNotificationOpen(false);
+                                        setProfileOpen((open) => !open);
+                                    }}
+                                >
+                                    <span className="grid size-5 place-items-center">
+                                        <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg>
+                                    </span>
+                                </button>
+                                <div className={`${profileOpen ? 'grid' : 'hidden'} absolute right-0 top-[calc(100%+10px)] z-50 w-56 gap-1 rounded-md border border-ld bg-card p-2 shadow-md`}>
+                                    <button className="rounded-sm px-3 py-2 text-left text-sm font-medium hover:bg-lightprimary hover:text-primary" type="button" onClick={() => activate('account')}>Profil akun</button>
+                                    {props.user.isAdmin && <button className="rounded-sm px-3 py-2 text-left text-sm font-medium hover:bg-lightprimary hover:text-primary" type="button" onClick={() => activate('settings')}>Pengaturan</button>}
+                                    <button className="rounded-sm px-3 py-2 text-left text-sm font-medium text-error hover:bg-lighterror" type="button" onClick={() => postForm(props.routes.logout, props.csrf)}>Keluar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </nav>
+                </header>
+
+                <div className="mr-0 flex min-h-[calc(100vh-76px)] flex-col rounded-3xl bg-background pb-28 dark:bg-dark xl:mr-3 xl:pb-0">
+                    <div className="container mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-6 py-8 xl:py-30">
+                        <main className="grow">
+                            {resolvedPage === 'dashboard' && <Dashboard props={props} />}
+                            {resolvedPage === 'transactions' && <Transactions props={props} />}
+                            {page === 'transaction-edit' && editingTransaction && <TransactionEditForm transaction={editingTransaction} props={props} onBack={() => activate('transaction-history')} />}
+                            {page === 'transaction-edit' && !editingTransaction && <TransactionHistory props={props} onEdit={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
+                            {page === 'product-create' && props.user.isAdmin && <ProductForm props={props} onBack={() => activate('inventory')} />}
+                            {page === 'product-edit' && props.user.isAdmin && editingProduct && <ProductForm product={editingProduct} props={props} onBack={() => activate('inventory')} />}
+                            {page === 'product-edit' && props.user.isAdmin && !editingProduct && <Inventory props={props} onCreate={() => activate('product-create')} onEdit={(product) => { setEditingProduct(product); activate('product-edit'); }} />}
+                            {page !== 'product-create' && page !== 'product-edit' && resolvedPage === 'inventory' && <Inventory props={props} onCreate={() => activate('product-create')} onEdit={(product) => { setEditingProduct(product); activate('product-edit'); }} />}
+                            {page === 'category-create' && props.user.isAdmin && <CategoryForm props={props} onBack={() => activate('categories')} />}
+                            {page === 'category-edit' && props.user.isAdmin && editingCategory && <CategoryForm category={editingCategory} props={props} onBack={() => activate('categories')} />}
+                            {page === 'category-edit' && props.user.isAdmin && !editingCategory && <Categories props={props} onCreate={() => activate('category-create')} onEdit={(category) => { setEditingCategory(category); activate('category-edit'); }} />}
+                            {page !== 'category-create' && page !== 'category-edit' && resolvedPage === 'categories' && props.user.isAdmin && <Categories props={props} onCreate={() => activate('category-create')} onEdit={(category) => { setEditingCategory(category); activate('category-edit'); }} />}
+                            {page === 'supplier-create' && props.user.isAdmin && <SupplierForm props={props} onBack={() => activate('suppliers')} />}
+                            {page === 'supplier-edit' && props.user.isAdmin && editingSupplier && <SupplierForm supplier={editingSupplier} props={props} onBack={() => activate('suppliers')} />}
+                            {page === 'supplier-edit' && props.user.isAdmin && !editingSupplier && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
+                            {page !== 'supplier-create' && page !== 'supplier-edit' && resolvedPage === 'suppliers' && props.user.isAdmin && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
+                            {page === 'stock-purchase' && props.user.isAdmin && <PurchaseForm props={props} onBack={() => activate('stock')} />}
+                            {page === 'stock-create' && props.user.isAdmin && <StockInForm props={props} onBack={() => activate('stock')} />}
+                            {page === 'stock-edit' && props.user.isAdmin && editingStockIn && <StockInForm stockIn={editingStockIn} props={props} onBack={() => activate('stock')} />}
+                            {page === 'stock-edit' && props.user.isAdmin && !editingStockIn && <StockPage props={props} onPurchase={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {page !== 'stock-purchase' && page !== 'stock-create' && page !== 'stock-edit' && resolvedPage === 'stock' && props.user.isAdmin && <StockPage props={props} onPurchase={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {resolvedPage === 'history' && <History props={props} onEditTransaction={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
+                            {resolvedPage === 'transaction-history' && page !== 'transaction-edit' && <TransactionHistory props={props} onEdit={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
+                            {resolvedPage === 'operations' && <Operations props={props} />}
+                            {resolvedPage === 'settings' && props.user.isAdmin && <Cashiers props={props} />}
+                            {resolvedPage === 'account' && <Account props={props} />}
+                        </main>
+                        <footer className="mt-auto pt-8 text-left text-xs font-medium text-darklink">
+                            @ 2026 Dalwa Water Tegal
+                        </footer>
+                    </div>
+                </div>
+            </div>
+
+            <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-ld bg-card px-2 py-2 shadow-lg xl:hidden">
+                {bottomNav.slice(0, props.user.isAdmin ? 5 : 4).map((item) => {
+                    const active = resolvedPage === item.id;
+
+                    return (
+                        <button
+                            key={item.id}
+                            className={`grid min-h-14 place-items-center rounded-sm px-1 text-[11px] font-bold leading-4 transition [&_svg]:size-5 ${active ? 'bg-lightprimary text-primary' : 'text-darklink hover:bg-lightprimary hover:text-primary'}`}
+                            type="button"
+                            onClick={() => activate(item.id)}
+                        >
+                            <span><NavIcon name={item.icon} /></span>
+                            <span className="max-w-full truncate">{item.label.split(' ')[0]}</span>
+                        </button>
+                    );
+                })}
+            </nav>
+        </div>
+    );
+}
+
+function Dashboard({ props }: { props: AppProps }) {
+    const dashboardCards = [
+        ['Jumlah Transaksi', props.stats.total_transactions, 'Trx'],
+        ['Total Transaksi', props.stats.total_transaction_amount, 'Rp'],
+        ['Pendapatan', props.stats.total_income, 'Rp'],
+    ];
+    const recentTransactions = props.transactions.slice(0, 5);
+    const topProducts = Object.values(
+        props.historyTransactions.reduce<Record<string, { name: string; qty: number; total: number }>>((carry, transaction) => {
+            if (transaction.status === 'void') {
+                return carry;
+            }
+
+            transaction.details.forEach((detail) => {
+                carry[detail.product] = carry[detail.product] ?? { name: detail.product, qty: 0, total: 0 };
+                carry[detail.product].qty += detail.qty;
+                carry[detail.product].total += detail.subtotal;
+            });
+
+            return carry;
+        }, {}),
+    )
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-1">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Beranda</h1>
+                    <p className="text-sm leading-5 text-muted-foreground">Ringkasan Operasional Dalwa Water Tegal.</p>
+                </div>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-3">
+                {dashboardCards.map(([label, value, unit]) => <MetricCard key={label} label={String(label)} value={Number(value)} unit={String(unit)} />)}
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.8fr)]">
+                <Card title="Transaksi Terbaru">
+                    <DataTable>
+                        <table>
+                            <thead><tr><th>Nomor</th><th>Kasir</th><th>Status</th><th>Total</th></tr></thead>
+                            <tbody>
+                                {recentTransactions.length ? recentTransactions.map((transaction) => (
+                                    <tr key={transaction.id}>
+                                        <td className="!text-left"><strong className="text-foreground">{transaction.kode_transaksi}</strong><br /><span className="text-xs text-muted-foreground">{transaction.created_at}</span></td>
+                                        <td>{transaction.cashier}</td>
+                                        <td><Badge className="rounded-full px-3 py-1" variant={transaction.status === 'void' ? 'red' : transaction.payment_status === 'paid' ? 'green' : 'amber'}>{transaction.status === 'void' ? 'Batal' : transaction.payment_status === 'paid' ? 'Lunas' : 'Belum Bayar'}</Badge></td>
+                                        <td className="whitespace-nowrap !text-right font-semibold text-foreground">{rupiah(transaction.total)}</td>
+                                    </tr>
+                                )) : <tr><td className="text-center text-muted-foreground" colSpan={4}>Belum ada transaksi.</td></tr>}
+                            </tbody>
+                        </table>
+                    </DataTable>
+                </Card>
+
+                <Card title="Produk Terlaris">
+                    <div className="grid gap-3">
+                        {topProducts.length ? topProducts.map((product, index) => (
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-ld bg-background px-4 py-3" key={product.name}>
+                                <span className="grid size-9 place-items-center rounded-md bg-lightprimary text-sm font-semibold text-primary">{index + 1}</span>
+                                <div className="min-w-0">
+                                    <strong className="block truncate text-sm text-foreground">{product.name}</strong>
+                                    <span className="text-xs text-muted-foreground">{product.qty} barang terjual</span>
+                                </div>
+                                <strong className="whitespace-nowrap text-sm text-foreground">{rupiah(product.total)}</strong>
+                            </div>
+                        )) : <p className="text-sm text-muted-foreground">Belum ada produk terjual pada periode ini.</p>}
+                    </div>
+                </Card>
+            </div>
+        </section>
+    );
+}
+
+function MetricCard({ label, value, unit }: { label: string; value: number; unit: string }) {
+    return (
+        <Card className="min-h-28">
+            <div className="grid gap-3">
+                <h3 className="text-sm font-semibold leading-5 text-muted-foreground">{label}</h3>
+                <div className="text-2xl font-semibold leading-none text-foreground">{unit === 'Rp' ? rupiah(value) : value}<small className="text-sm font-medium text-muted-foreground">{unit !== 'Rp' ? ` ${unit}` : ''}</small></div>
+            </div>
+        </Card>
+    );
+}
+
+function Transactions({ props }: { props: AppProps }) {
+    const [cart, setCart] = useState<Record<number, CartItem>>({});
+    const [query, setQuery] = useState('');
+    const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending'>('paid');
+    const [paymentType, setPaymentType] = useState<'cash' | 'transfer'>('cash');
+    const [paid, setPaid] = useState(0);
+    const [customerName, setCustomerName] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+
+    const items = Object.values(cart);
+    const subtotal = items.reduce((sum, item) => sum + item.harga_jual * item.qty, 0);
+    const itemDiscount = (item: CartItem) => {
+        const value = Math.max(0, Number(item.discountValue || 0));
+        const discount = item.discountType === 'percent' ? Math.round((item.harga_jual * Math.min(value, 100)) / 100) : value;
+
+        return Math.min(discount, item.harga_jual);
+    };
+    const itemLineTotal = (item: CartItem) => Math.max(0, item.harga_jual - itemDiscount(item)) * item.qty;
+    const discountTotal = items.reduce((sum, item) => sum + itemDiscount(item) * item.qty, 0);
+    const total = Math.max(0, subtotal - discountTotal);
+    const change = Math.max(0, paid - total);
+    const visibleProducts = props.activeProducts.filter((product) => {
+        const matchesKeyword = matchesSearchText(`${product.nama_barang} ${product.kode_barang} ${product.kategori}`, query);
+
+        return matchesKeyword;
+    });
+    const canPay = items.length > 0 && !submitting && (paymentStatus === 'pending' || paymentType === 'transfer' || paid >= total);
+
+    if (!props.user.isAdmin && !props.currentShift) {
+        return (
+            <section className="grid gap-6">
+                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Transaksi Penjualan</h1><p className="text-sm text-muted-foreground">Shift kasir harus aktif sebelum membuat transaksi.</p></div>
+                <Card title="Buka Shift Kasir">
+                    <FormGrid method="POST" action={props.routes.cashierShiftsOpen ?? ''}>
+                        <input type="hidden" name="_token" value={props.csrf} />
+                        <Field label="Modal Awal"><input name="opening_cash" type="number" min={0} defaultValue={0} required /></Field>
+                        <Field label="Catatan"><input name="notes" /></Field>
+                        <Button variant="primary" type="submit">Buka Shift</Button>
+                    </FormGrid>
+                </Card>
+            </section>
+        );
+    }
+
+    const addProduct = (product: Product) => {
+        setCart((current) => {
+            const existing = current[product.id];
+            const nextQty = Math.min(product.stok, (existing?.qty ?? 0) + 1);
+            return {
+                ...current,
+                [product.id]: {
+                    ...product,
+                    discountType: existing?.discountType ?? 'amount',
+                    discountValue: existing?.discountValue ?? 0,
+                    qty: nextQty,
+                },
+            };
+        });
+    };
+
+    const updateQty = (id: number, qty: number) => {
+        setCart((current) => {
+            const item = current[id];
+            if (!item) return current;
+            if (qty < 1) {
+                const clone = { ...current };
+                delete clone[id];
+                return clone;
+            }
+            return { ...current, [id]: { ...item, qty: Math.min(item.stok, qty) } };
+        });
+    };
+
+    const removeItem = (id: number) => {
+        setCart((current) => {
+            const clone = { ...current };
+            delete clone[id];
+            return clone;
+        });
+    };
+
+    const updateItemDiscount = (id: number, field: 'discountType' | 'discountValue', value: 'amount' | 'percent' | number) => {
+        setCart((current) => {
+            const item = current[id];
+            if (!item) return current;
+
+            return { ...current, [id]: { ...item, [field]: value } };
+        });
+    };
+
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+        setError('');
+        if (!items.length) {
+            setError('Transaksi masih kosong.');
+            return;
+        }
+
+        setSubmitting(true);
+        const response = await fetch(props.routes.transactionsStore ?? '', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': props.csrf,
+            },
+            body: JSON.stringify({
+                items: items.map((item) => ({
+                    product_id: item.id,
+                    qty: item.qty,
+                    discount_type: item.discountType,
+                    discount_value: Math.max(0, Number(item.discountValue || 0)),
+                })),
+                payment_status: paymentStatus,
+                payment_type: paymentStatus === 'pending' ? null : paymentType,
+                discount_per_product: 0,
+                uang_diterima: paymentStatus === 'paid' && paymentType === 'cash' ? paid : total,
+                bank_name: paymentType === 'transfer' ? 'Transfer' : null,
+                reference_number: null,
+                customer_name: customerName || null,
+            }),
+        });
+
+        if (response.redirected) {
+            window.location.href = response.url;
+            return;
+        }
+
+        if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            setError(payload?.message || 'Transaksi gagal disimpan.');
+            setSubmitting(false);
+            return;
+        }
+
+        window.location.href = props.routes.dashboard ?? '/';
+    };
+
+    return (
+        <section className="grid gap-5 text-foreground">
+            <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8">Transaksi</h1>
+                    <p className="text-sm leading-5 text-muted-foreground">Kelola transaksi penjualan dan pembayaran pelanggan Dalwa Water Tegal.</p>
+                </div>
+            </header>
+
+            <form className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_410px]" onSubmit={submit}>
+                <Card className="min-w-0">
+                    <div className="mb-6 max-w-[360px]">
+                        <div className="flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4">
+                            <svg className="size-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+                            <input className="min-h-10 w-full border-0 bg-transparent text-sm outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk" />
+                        </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                        {visibleProducts.length ? visibleProducts.map((product) => {
+                            const isLowStock = product.stok <= 5;
+
+                            return (
+                                <article className="group relative overflow-hidden rounded-md border border-ld bg-card shadow-sm transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md" key={product.id}>
+                                    <button className="grid min-h-36 w-full content-between gap-5 p-4 text-left" type="button" onClick={() => addProduct(product)} aria-label={`Tambah ${product.nama_barang}`}>
+                                        <span className="grid gap-4">
+                                            <span className="flex items-start justify-between gap-3">
+                                                <span className="grid size-10 shrink-0 place-items-center rounded-md bg-lightprimary text-primary transition group-hover:bg-primary group-hover:text-primary-foreground">
+                                                    <svg className="size-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true">
+                                                        <path d="M10 3h4" />
+                                                        <path d="M11 3v3.2c0 .5-.2 1-.6 1.4l-1 1A4.8 4.8 0 0 0 8 12v6a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-6a4.8 4.8 0 0 0-1.4-3.4l-1-1A2 2 0 0 1 13 6.2V3" />
+                                                        <path d="M8 14h8" />
+                                                    </svg>
+                                                </span>
+                                                <span className={`rounded-md px-2 py-1 text-[11px] font-bold ${isLowStock ? 'bg-lighterror text-error' : 'bg-lightprimary text-primary'}`}>{isLowStock ? 'Stok rendah' : 'Tersedia'}</span>
+                                            </span>
+                                            <span className="text-base font-bold leading-6 text-foreground">{product.nama_barang}</span>
+                                        </span>
+                                        <span className="flex items-end justify-between gap-3">
+                                            <span className="grid min-w-0 gap-0.5">
+                                                <small className="text-[11px] font-semibold uppercase text-muted-foreground">Harga</small>
+                                                <strong className="whitespace-nowrap text-base leading-5 text-primary">{rupiah(product.harga_jual)}</strong>
+                                            </span>
+                                        </span>
+                                    </button>
+                                </article>
+                            );
+                        }) : <div className="rounded-md border border-dashed border-ld p-8 text-center text-sm font-semibold text-muted-foreground sm:col-span-2 lg:col-span-3 2xl:col-span-4">Produk tidak ditemukan.</div>}
+                    </div>
+                </Card>
+
+                <aside className="sticky top-24 self-start rounded-md border border-ld bg-card shadow-sm">
+                    <div className="flex items-center justify-between gap-3 border-b border-ld px-5 py-4"><h2 className="m-0 text-lg font-semibold leading-6">Keranjang</h2></div>
+                    {error && <div className="mx-5 mt-4 rounded-md border border-error/30 bg-lighterror px-4 py-3 text-sm font-semibold text-error">{error}</div>}
+                    {items.length > 0 && <div className="px-5 pt-5">
+                        <label className="grid gap-1"><span className="text-xs font-semibold text-muted-foreground">Pembeli/Member (Opsional)</span><input className="min-h-10 rounded-md border border-ld bg-card px-3 outline-none focus:border-primary" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Nama pembeli atau member" /></label>
+                    </div>}
+                    <div className="mx-5 grid max-h-[390px] gap-3 overflow-y-auto py-5">
+                        {items.length ? items.map((item) => (
+                            <div className="grid gap-3 rounded-md border border-ld bg-background p-3" key={item.id}>
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <strong className="block text-sm leading-5">{item.nama_barang}</strong>
+                                        <span className="text-xs text-muted-foreground">{item.kode_barang} - {rupiah(item.harga_jual)}</span>
+                                    </div>
+                                    <div className="grid justify-items-end gap-1">
+                                        <strong className="text-sm">{rupiah(itemLineTotal(item))}</strong>
+                                        <button className="text-xs font-bold text-error" type="button" onClick={() => removeItem(item.id)} aria-label={`Hapus ${item.nama_barang}`}>Hapus</button>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button className="grid size-8 place-items-center rounded-md border border-ld" type="button" onClick={() => updateQty(item.id, item.qty - 1)}>-</button>
+                                    <input className="h-8 w-16 rounded-md border border-ld bg-card px-2 text-center text-sm outline-none" type="number" value={item.qty} min={1} max={item.stok} onChange={(event) => updateQty(item.id, Number(event.target.value))} />
+                                    <button className="grid size-8 place-items-center rounded-md border border-ld" type="button" onClick={() => updateQty(item.id, item.qty + 1)}>+</button>
+                                </div>
+                                <div className="grid gap-1.5 rounded-md border border-dashed border-ld px-2 py-1.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-semibold text-muted-foreground">Diskon produk</span>
+                                        {itemDiscount(item) > 0 && <span className="text-[11px] font-semibold text-primary">{rupiah(itemDiscount(item) * item.qty)}</span>}
+                                    </div>
+                                    <div className="grid grid-cols-[66px_minmax(0,1fr)] gap-2">
+                                        <select className="h-8 rounded-md border border-ld bg-card px-2 text-xs font-semibold text-foreground outline-none focus:border-primary" value={item.discountType} onChange={(event) => updateItemDiscount(item.id, 'discountType', event.target.value as 'amount' | 'percent')} aria-label={`Tipe diskon ${item.nama_barang}`}>
+                                            <option value="amount">Rp</option>
+                                            <option value="percent">%</option>
+                                        </select>
+                                        <input
+                                            className="h-8 rounded-md border border-ld bg-card px-2 text-sm outline-none focus:border-primary"
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={item.discountValue ? item.discountType === 'amount' ? formatThousands(item.discountValue) : String(item.discountValue) : ''}
+                                            onChange={(event) => {
+                                                const value = Number(numericOnly(event.target.value));
+                                                updateItemDiscount(item.id, 'discountValue', item.discountType === 'percent' ? Math.min(value, 100) : value);
+                                            }}
+                                            aria-label={`Nilai diskon ${item.nama_barang}`}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )) : <div className="flex min-h-36 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-ld px-5 py-6 text-center text-sm text-muted-foreground">
+                            <span className="grid size-12 place-items-center rounded-full bg-lightprimary text-primary">
+                                <svg className="size-7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M6.5 8.5h11l-.9 8.2A2.5 2.5 0 0 1 14.1 19H9.9a2.5 2.5 0 0 1-2.5-2.3L6.5 8.5Z" />
+                                    <path d="M9 8.5V7a3 3 0 0 1 6 0v1.5" />
+                                    <path d="M9.5 12h5" />
+                                </svg>
+                            </span>
+                            <span className="block w-full text-center">Keranjang masih kosong</span>
+                        </div>}
+                    </div>
+
+                    {items.length > 0 && <>
+                        <div className="mx-5 grid gap-2.5 border-y border-dashed border-ld py-4 text-sm">
+                            <div className="flex items-center justify-between gap-4"><span className="font-medium text-muted-foreground">Sub Total</span><strong className="text-foreground">{rupiah(subtotal)}</strong></div>
+                            <div className="flex items-center justify-between gap-4"><span className="font-medium text-muted-foreground">Total Diskon</span><strong className="text-foreground">{rupiah(discountTotal)}</strong></div>
+                            <div className="mt-1 flex items-center justify-between gap-4 rounded-md bg-lightprimary px-4 py-3">
+                                <span className="text-sm font-semibold text-primary">Total Pembayaran</span>
+                                <strong className="text-xl leading-7 text-primary">{rupiah(total)}</strong>
+                            </div>
+                        </div>
+
+                        <div className="mx-5 mt-4 grid gap-3">
+                            <label className="text-xs font-semibold text-muted-foreground" htmlFor="payment-method">Metode Pembayaran</label>
+                            <select
+                                id="payment-method"
+                                className="h-11 rounded-md border border-ld bg-card px-3 text-sm font-semibold text-foreground outline-none focus:border-primary"
+                                value={paymentStatus === 'pending' ? 'pending' : paymentType}
+                                onChange={(event) => {
+                                    if (event.target.value === 'pending') {
+                                        setPaymentStatus('pending');
+                                        return;
+                                    }
+
+                                    setPaymentStatus('paid');
+                                    setPaymentType(event.target.value as 'cash' | 'transfer');
+                                }}
+                            >
+                                <option value="cash">Tunai</option>
+                                <option value="transfer">Transfer</option>
+                                <option value="pending">Piutang</option>
+                            </select>
+                        </div>
+
+                        {paymentStatus === 'paid' && paymentType === 'cash' && <div className="mx-5 mt-4 grid gap-3"><label className="grid gap-1 text-xs font-semibold text-muted-foreground">Uang Diterima<input className="min-h-11 rounded-md border border-ld bg-card px-3 text-sm font-semibold text-foreground outline-none focus:border-primary" type="text" inputMode="numeric" value={paid ? formatThousands(paid) : ''} onChange={(event) => setPaid(Number(numericOnly(event.target.value)))} /></label><div className="flex items-center justify-between rounded-md bg-background px-4 py-3 text-sm"><span className="font-medium text-muted-foreground">Kembalian</span><strong className="text-foreground">{rupiah(change)}</strong></div></div>}
+                        {paymentStatus === 'pending' && <div className="mx-5 mb-4 rounded-md bg-lightwarning px-4 py-3 text-sm font-semibold text-warningemphasis">Transaksi disimpan sebagai piutang.</div>}
+
+                        <div className="grid gap-3 px-5 pb-5 pt-5">
+                            <Button className="min-h-12 text-sm" variant="primary" type="submit" disabled={!canPay}>{submitting ? 'Menyimpan...' : 'Bayar'}</Button>
+                        </div>
+                    </>}
+                </aside>
+            </form>
+        </section>
+    );
+}
+
+function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: (product: Product) => void; props: AppProps }) {
+    const [category, setCategory] = useState('Semua kategori');
+    const [query, setQuery] = useState('');
+    const productCategories = [
+        'Semua kategori',
+        ...Array.from(new Set([
+            ...props.categories.map((item) => item.nama_kategori),
+            ...props.products.map((product) => product.kategori),
+        ].filter(Boolean))),
+    ];
+    const filteredProducts = props.products.filter((product) => {
+        const matchesCategory = category === 'Semua kategori' || product.kategori === category;
+        const matchesKeyword = matchesSearchText(`${product.kode_barang} ${product.nama_barang} ${product.kategori}`, query);
+
+        return matchesCategory && matchesKeyword;
+    });
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Produk</h1><p className="text-sm text-muted-foreground">Kelola katalog produk, kategori, barcode, dan batas stok minimal.</p></div>
+                {props.user.isAdmin && (
+                    <div className="flex flex-wrap gap-2">
+                        <Button className="self-start" variant="primary" onClick={onCreate}>Tambah</Button>
+                    </div>
+                )}
+            </div>
+
+            <Card>
+                <div className="grid gap-3 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)_auto]">
+                    <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori">
+                        {productCategories.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                    <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari nama atau kode barang..." aria-label="Cari produk" />
+                    <Button className="h-10 w-full lg:w-auto" variant="soft" onClick={() => document.activeElement instanceof HTMLElement && document.activeElement.blur()}>
+                        Filter
+                    </Button>
+                </div>
+            </Card>
+
+            <Card>
+                <ProductTable products={filteredProducts} showActions={props.user.isAdmin} csrf={props.csrf} onEdit={onEdit} />
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredProducts.length} dari {props.products.length} data</p>
+            </Card>
+        </section>
+    );
+}
+
+function StockPage({ onPurchase, onEdit, props }: { onPurchase: () => void; onEdit: (stockIn: StockIn) => void; props: AppProps }) {
+    const [category, setCategory] = useState('Semua kategori');
+    const [productId, setProductId] = useState('Semua produk');
+    const [query, setQuery] = useState('');
+    const stockCategories = [
+        'Semua kategori',
+        ...Array.from(new Set([
+            ...props.categories.map((item) => item.nama_kategori),
+            ...props.stockEntries.map((stockIn) => stockIn.product_category),
+        ].filter(Boolean))),
+    ];
+    const stockProducts = [
+        'Semua produk',
+        ...props.products.map((product) => String(product.id)),
+    ];
+    const filteredStockIns = props.stockEntries.filter((stockIn) => {
+        const matchesCategory = category === 'Semua kategori' || stockIn.product_category === category;
+        const matchesProduct = productId === 'Semua produk' || String(stockIn.product_id) === productId;
+        const matchesKeyword = matchesSearchText(`${stockIn.product} ${stockIn.barcode ?? ''} ${stockIn.product_code ?? ''}`, query);
+
+        return matchesCategory && matchesProduct && matchesKeyword;
+    });
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Stok</h1>
+                    <p className="text-sm text-muted-foreground">Kelola barang masuk, pembelian, dan produk yang perlu segera diisi ulang.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    <Button className="self-start" variant="primary" onClick={onPurchase}>Pembelian</Button>
+                </div>
+            </div>
+
+            <Card>
+                <div className="grid gap-3 lg:grid-cols-[minmax(180px,260px)_minmax(180px,260px)_minmax(360px,1fr)]">
+                    <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori stok">
+                        {stockCategories.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                    <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={productId} onChange={(event) => setProductId(event.target.value)} aria-label="Filter produk stok">
+                        {stockProducts.map((item) => {
+                            const product = props.products.find((row) => String(row.id) === item);
+
+                            return <option key={item} value={item}>{product?.nama_barang ?? item}</option>;
+                        })}
+                    </select>
+                    <div className="flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4 focus-within:border-primary">
+                        <svg className="size-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+                        <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari nama barang..." aria-label="Cari stok barang" />
+                    </div>
+                </div>
+            </Card>
+
+            <Card>
+                <StockInTable purchases={filteredStockIns} />
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredStockIns.length} dari {props.stockEntries.length} data</p>
+            </Card>
+
+            <Card id="purchase-history" title="Riwayat Pembelian">
+                <PurchaseTable purchases={props.stockEntries} csrf={props.csrf} onEdit={onEdit} />
+            </Card>
+        </section>
+    );
+}
+
+function PurchaseForm({ onBack, props }: { onBack: () => void; props: AppProps }) {
+    const [selectedProductId, setSelectedProductId] = useState('');
+    const selectedProduct = props.products.find((product) => String(product.id) === selectedProductId) ?? null;
+    const [barcode, setBarcode] = useState(selectedProduct?.kode_barang ?? '');
+    const [qty, setQty] = useState('');
+    const [purchasePrice, setPurchasePrice] = useState(selectedProduct?.harga_modal ? String(selectedProduct.harga_modal) : '');
+    const [salePrice, setSalePrice] = useState(selectedProduct?.harga_jual ? String(selectedProduct.harga_jual) : '');
+    const [profitPercent, setProfitPercent] = useState(() => calculateProfitPercent(selectedProduct?.harga_modal ?? '', selectedProduct?.harga_jual ?? ''));
+    const [discountPercent, setDiscountPercent] = useState('');
+    const [discountAmount, setDiscountAmount] = useState('');
+    const grossSubtotal = Number(numericOnly(qty)) * Number(numericOnly(purchasePrice));
+    const discountValue = Math.min(Number(numericOnly(discountAmount)), grossSubtotal);
+    const subtotal = Math.max(0, grossSubtotal - discountValue);
+    const discountPercentValue = parseDecimal(discountPercent);
+
+    const recalculateDiscountByPercent = (percentValue: string, nextQty = qty, nextPurchasePrice = purchasePrice) => {
+        const base = Number(numericOnly(nextQty)) * Number(numericOnly(nextPurchasePrice));
+        const parsedPercent = parseDecimal(percentValue);
+
+        setDiscountAmount(!Number.isNaN(parsedPercent) && parsedPercent > 0 && base > 0 ? String(Math.round(base * Math.min(parsedPercent, 100) / 100)) : '');
+    };
+    const applyProduct = (productId: string) => {
+        const product = props.products.find((item) => String(item.id) === productId);
+        const nextPurchasePrice = product?.harga_modal ? String(product.harga_modal) : '';
+        const nextSalePrice = product?.harga_jual ? String(product.harga_jual) : '';
+
+        setSelectedProductId(productId);
+        setBarcode(product?.kode_barang ?? '');
+        setPurchasePrice(nextPurchasePrice);
+        setSalePrice(nextSalePrice);
+        setProfitPercent(calculateProfitPercent(nextPurchasePrice, nextSalePrice));
+        recalculateDiscountByPercent(discountPercent, qty, nextPurchasePrice);
+    };
+    const updateQty = (value: string) => {
+        const digits = numericOnly(value);
+
+        setQty(digits);
+        recalculateDiscountByPercent(discountPercent, digits, purchasePrice);
+    };
+    const updatePurchasePrice = (value: string) => {
+        const digits = numericOnly(value);
+
+        setPurchasePrice(digits);
+        setProfitPercent(calculateProfitPercent(digits, salePrice));
+        recalculateDiscountByPercent(discountPercent, qty, digits);
+    };
+    const updateProfit = (value: string) => {
+        setProfitPercent(value);
+
+        const percent = parseDecimal(value);
+        const modal = Number(numericOnly(purchasePrice));
+
+        if (!Number.isNaN(percent) && !Number.isNaN(modal) && modal > 0) {
+            setSalePrice(String(Math.round(modal + (modal * percent / 100))));
+        }
+    };
+    const updateSalePrice = (value: string) => {
+        const digits = numericOnly(value);
+
+        setSalePrice(digits);
+        setProfitPercent(calculateProfitPercent(purchasePrice, digits));
+    };
+    const updateDiscountPercent = (value: string) => {
+        setDiscountPercent(value);
+        recalculateDiscountByPercent(value);
+    };
+    const updateDiscountAmount = (value: string) => {
+        const digits = numericOnly(value);
+        const amount = Number(digits);
+
+        setDiscountAmount(digits);
+        setDiscountPercent(grossSubtotal > 0 && amount > 0 ? Number(((amount / grossSubtotal) * 100).toFixed(2)).toLocaleString('id-ID') : '');
+    };
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Pembelian</h1>
+                    <p className="text-sm text-muted-foreground">Catat pembelian produk, suplier, harga, diskon, dan subtotal.</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={props.routes.stockInsStore ?? ''} encType="multipart/form-data" className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    <input type="hidden" name="harga_modal" value={purchasePrice} />
+                    <input type="hidden" name="harga_beli" value={purchasePrice} />
+                    <input type="hidden" name="harga_jual" value={salePrice} />
+                    <input type="hidden" name="discount_percent" value={!Number.isNaN(discountPercentValue) ? String(discountPercentValue) : '0'} />
+                    <input type="hidden" name="discount_amount" value={discountValue} />
+                    <input type="hidden" name="subtotal" value={subtotal} />
+                    <CanvasFormRow label="Nomor Faktur/Nota">
+                        <input name="invoice_number" placeholder="Masukan nomor faktur atau nota" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Tanggal" required>
+                        <input name="tanggal" type="date" defaultValue={todayInputDate()} required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Nama Suplier">
+                        <select name="supplier" defaultValue="">
+                            <option value="">Pilih suplier</option>
+                            {props.suppliers.map((supplier) => <option key={supplier.id} value={supplier.nama}>{supplier.nama}</option>)}
+                        </select>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Produk" required>
+                        <select name="product_id" value={selectedProductId} onChange={(event) => applyProduct(event.target.value)} required>
+                            <option value="">Pilih produk</option>
+                            {props.products.map((product) => <option key={product.id} value={product.id}>{product.nama_barang}</option>)}
+                        </select>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Barcode">
+                        <input name="kode_barang" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="Masukan barcode" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Jumlah Produk" required>
+                        <input type="hidden" name="qty" value={qty} />
+                        <input type="text" inputMode="numeric" value={formatThousands(qty)} onChange={(event) => updateQty(event.target.value)} required placeholder="Masukan jumlah produk" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Harga Beli" required>
+                        <input type="text" inputMode="numeric" value={formatThousands(purchasePrice)} onChange={(event) => updatePurchasePrice(event.target.value)} required placeholder="Masukan harga beli" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Persentase Keuntungan">
+                        <div className="grid grid-cols-[minmax(0,1fr)_56px]">
+                            <input className="rounded-e-none border-e-0" type="text" inputMode="decimal" value={profitPercent} onChange={(event) => updateProfit(event.target.value)} placeholder="Masukan persentase keuntungan" />
+                            <span className="grid h-10 place-items-center rounded-e-sm border border-ld bg-muted text-sm font-semibold text-muted-foreground">%</span>
+                        </div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Harga Jual" required>
+                        <input type="text" inputMode="numeric" value={formatThousands(salePrice)} onChange={(event) => updateSalePrice(event.target.value)} required placeholder="Masukan harga jual" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Diskon Persentase">
+                        <div className="grid grid-cols-[minmax(0,1fr)_56px]">
+                            <input className="rounded-e-none border-e-0" type="text" inputMode="decimal" value={discountPercent} onChange={(event) => updateDiscountPercent(event.target.value)} placeholder="Masukan diskon persentase" />
+                            <span className="grid h-10 place-items-center rounded-e-sm border border-ld bg-muted text-sm font-semibold text-muted-foreground">%</span>
+                        </div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Jumlah Diskon">
+                        <div className="min-h-10 py-2 text-sm font-semibold text-foreground">{rupiah(discountValue)}</div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Sub Total">
+                        <div className="min-h-10 py-2 text-sm font-semibold text-foreground">{rupiah(subtotal)}</div>
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit" disabled={!props.products.length}>Simpan</Button>
+                            <Button variant="soft" onClick={onBack}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>
+        </section>
+    );
+}
+
+function StockInForm({ onBack, props, stockIn }: { onBack: () => void; props: AppProps; stockIn?: StockIn }) {
+    const [selectedProductId, setSelectedProductId] = useState(stockIn?.product_id ? String(stockIn.product_id) : '');
+    const selectedProduct = props.products.find((product) => String(product.id) === selectedProductId) ?? null;
+    const [barcode, setBarcode] = useState(stockIn?.barcode ?? selectedProduct?.kode_barang ?? '');
+    const [qty, setQty] = useState(stockIn?.qty ? String(stockIn.qty) : '');
+    const [purchasePrice, setPurchasePrice] = useState(stockIn?.harga_beli ? String(stockIn.harga_beli) : selectedProduct?.harga_modal ? String(selectedProduct.harga_modal) : '');
+    const [salePrice, setSalePrice] = useState(stockIn?.harga_jual ? String(stockIn.harga_jual) : selectedProduct?.harga_jual ? String(selectedProduct.harga_jual) : '');
+    const [profitPercent, setProfitPercent] = useState(() => calculateProfitPercent(stockIn?.harga_beli ?? selectedProduct?.harga_modal ?? '', stockIn?.harga_jual ?? selectedProduct?.harga_jual ?? ''));
+    const [discountPercent, setDiscountPercent] = useState(stockIn?.discount_percent ? Number(stockIn.discount_percent).toLocaleString('id-ID') : '');
+    const [discountAmount, setDiscountAmount] = useState(stockIn?.discount_amount ? String(stockIn.discount_amount) : '');
+    const isEdit = Boolean(stockIn);
+    const grossSubtotal = Number(numericOnly(qty)) * Number(numericOnly(purchasePrice));
+    const discountValue = Math.min(Number(numericOnly(discountAmount)), grossSubtotal);
+    const subtotal = Math.max(0, grossSubtotal - discountValue);
+    const discountPercentValue = parseDecimal(discountPercent);
+
+    const recalculateDiscountByPercent = (percentValue: string, nextQty = qty, nextPurchasePrice = purchasePrice) => {
+        const base = Number(numericOnly(nextQty)) * Number(numericOnly(nextPurchasePrice));
+        const parsedPercent = parseDecimal(percentValue);
+
+        setDiscountAmount(!Number.isNaN(parsedPercent) && parsedPercent > 0 && base > 0 ? String(Math.round(base * Math.min(parsedPercent, 100) / 100)) : '');
+    };
+
+    const applyProduct = (productId: string) => {
+        const product = props.products.find((item) => String(item.id) === productId);
+        const nextPurchasePrice = product?.harga_modal ? String(product.harga_modal) : '';
+        const nextSalePrice = product?.harga_jual ? String(product.harga_jual) : '';
+
+        setSelectedProductId(productId);
+        setBarcode(product?.kode_barang ?? '');
+        setPurchasePrice(nextPurchasePrice);
+        setSalePrice(nextSalePrice);
+        setProfitPercent(calculateProfitPercent(nextPurchasePrice, nextSalePrice));
+        recalculateDiscountByPercent(discountPercent, qty, nextPurchasePrice);
+    };
+    const updateQty = (value: string) => {
+        const digits = numericOnly(value);
+
+        setQty(digits);
+        recalculateDiscountByPercent(discountPercent, digits, purchasePrice);
+    };
+    const updateProfit = (value: string) => {
+        setProfitPercent(value);
+
+        const percent = parseDecimal(value);
+        const modal = Number(numericOnly(purchasePrice));
+
+        if (!Number.isNaN(percent) && !Number.isNaN(modal) && modal > 0) {
+            setSalePrice(String(Math.round(modal + (modal * percent / 100))));
+        }
+    };
+    const updatePurchasePrice = (value: string) => {
+        const digits = numericOnly(value);
+
+        setPurchasePrice(digits);
+        setProfitPercent(calculateProfitPercent(digits, salePrice));
+        recalculateDiscountByPercent(discountPercent, qty, digits);
+    };
+    const updateSalePrice = (value: string) => {
+        const digits = numericOnly(value);
+
+        setSalePrice(digits);
+        setProfitPercent(calculateProfitPercent(purchasePrice, digits));
+    };
+    const updateDiscountPercent = (value: string) => {
+        setDiscountPercent(value);
+        recalculateDiscountByPercent(value);
+    };
+    const updateDiscountAmount = (value: string) => {
+        const digits = numericOnly(value);
+        const amount = Number(digits);
+
+        setDiscountAmount(digits);
+        setDiscountPercent(grossSubtotal > 0 && amount > 0 ? Number(((amount / grossSubtotal) * 100).toFixed(2)).toLocaleString('id-ID') : '');
+    };
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Pembelian' : 'Tambah Stok'}</h1>
+                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui data pembelian produk, suplier, harga, diskon, dan subtotal.' : 'Tambahkan stok produk, harga beli, harga jual, dan barcode dalam satu form.'}</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={isEdit ? stockIn?.update_url ?? '' : props.routes.stockInsStore ?? ''} encType="multipart/form-data" className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    {isEdit && <input type="hidden" name="_method" value="PUT" />}
+                    <input type="hidden" name="harga_modal" value={purchasePrice} />
+                    <input type="hidden" name="harga_beli" value={purchasePrice} />
+                    <input type="hidden" name="harga_jual" value={salePrice} />
+                    <input type="hidden" name="discount_percent" value={!Number.isNaN(discountPercentValue) ? String(discountPercentValue) : '0'} />
+                    <input type="hidden" name="discount_amount" value={discountValue} />
+                    <input type="hidden" name="subtotal" value={subtotal} />
+                    <CanvasFormRow label="Nomor Faktur/Nota">
+                        <input name="invoice_number" defaultValue={stockIn?.invoice_number ?? ''} placeholder="Masukan nomor faktur atau nota" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Tanggal" required>
+                        <input name="tanggal" type="date" defaultValue={stockIn?.tanggal_input ?? todayInputDate()} required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Nama Suplier">
+                        <select name="supplier" defaultValue={stockIn?.supplier ?? ''}>
+                            <option value="">Pilih suplier</option>
+                            {props.suppliers.map((supplier) => <option key={supplier.id} value={supplier.nama}>{supplier.nama}</option>)}
+                        </select>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Produk" required>
+                        <select name="product_id" value={selectedProductId} onChange={(event) => applyProduct(event.target.value)} required>
+                            <option value="">Pilih produk</option>
+                            {props.products.map((product) => <option key={product.id} value={product.id}>{product.nama_barang}</option>)}
+                        </select>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Barcode">
+                        <input name="kode_barang" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="Masukan barcode" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Jumlah Produk" required>
+                        <input type="hidden" name="qty" value={qty} />
+                        <input type="text" inputMode="numeric" value={formatThousands(qty)} onChange={(event) => updateQty(event.target.value)} required placeholder="Masukan jumlah produk" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Harga Beli" required>
+                        <input type="text" inputMode="numeric" value={formatThousands(purchasePrice)} onChange={(event) => updatePurchasePrice(event.target.value)} required placeholder="Masukan harga beli" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Persentase Keuntungan">
+                        <div className="grid grid-cols-[minmax(0,1fr)_56px]">
+                            <input className="rounded-e-none border-e-0" name="profit_percent" type="text" inputMode="decimal" value={profitPercent} onChange={(event) => updateProfit(event.target.value)} placeholder="Masukan persentase keuntungan" />
+                            <span className="grid h-10 place-items-center rounded-e-sm border border-ld bg-muted text-sm font-semibold text-muted-foreground">%</span>
+                        </div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Harga Jual" required>
+                        <input type="text" inputMode="numeric" value={formatThousands(salePrice)} onChange={(event) => updateSalePrice(event.target.value)} required placeholder="Masukan harga jual" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Diskon Persentase">
+                        <div className="grid grid-cols-[minmax(0,1fr)_56px]">
+                            <input className="rounded-e-none border-e-0" type="text" inputMode="decimal" value={discountPercent} onChange={(event) => updateDiscountPercent(event.target.value)} placeholder="Masukan diskon persentase" />
+                            <span className="grid h-10 place-items-center rounded-e-sm border border-ld bg-muted text-sm font-semibold text-muted-foreground">%</span>
+                        </div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Jumlah Diskon">
+                        <div className="min-h-10 py-2 text-sm font-semibold text-foreground">{rupiah(discountValue)}</div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Sub Total">
+                        <div className="min-h-10 py-2 text-sm font-semibold text-foreground">{rupiah(subtotal)}</div>
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit" disabled={!props.products.length}>Simpan</Button>
+                            <Button variant="soft" onClick={onBack}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>
+        </section>
+    );
+}
+
+function CanvasFormRow({ children, label, required = false }: { children: React.ReactNode; label: string; required?: boolean }) {
+    return (
+        <div className="grid gap-2 md:grid-cols-[220px_minmax(0,1fr)] md:items-center">
+            <label className="text-sm font-semibold text-muted-foreground md:text-right">
+                {label} {required && <span className="text-error">*</span>}
+            </label>
+            {children}
+        </div>
+    );
+}
+
+function ProductForm({ onBack, product, props }: { onBack: () => void; product?: Product; props: AppProps }) {
+    const [productBarcode, setProductBarcode] = useState(() => product?.kode_barang ?? `DW-${Date.now().toString().slice(-8)}`);
+    const generateBarcode = () => {
+        setProductBarcode(`DW-${Date.now().toString().slice(-8)}`);
+    };
+    const isEdit = Boolean(product);
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Produk' : 'Tambah Produk'}</h1>
+                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui data katalog, barcode, dan batas stok minimal produk.' : 'Lengkapi data katalog, barcode, dan batas stok minimal produk.'}</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={isEdit ? product?.update_url ?? '' : props.routes.productsStore ?? ''} encType="multipart/form-data" className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    {isEdit && <input type="hidden" name="_method" value="PUT" />}
+                    <input type="hidden" name="harga_modal" value={product?.harga_modal ?? 0} />
+                    <input type="hidden" name="harga_jual" value={product?.harga_jual ?? 0} />
+                    <input type="hidden" name="stok" value={product?.stok ?? 0} />
+                    {!isEdit && <input type="hidden" name="status" value="active" />}
+                    <CanvasFormRow label="Nama" required>
+                        <input name="nama_barang" defaultValue={product?.nama_barang ?? ''} required placeholder="Masukan nama produk" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Kategori" required>
+                        <select name="kategori" defaultValue={product?.kategori ?? ''} required>
+                            <option value="">Pilih kategori</option>
+                            {props.categories.map((category) => <option key={category.id} value={category.nama_kategori}>{category.nama_kategori}</option>)}
+                        </select>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Satuan" required>
+                        <input name="satuan" defaultValue={product?.satuan ?? 'Unit'} required placeholder="Masukan satuan produk" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Stok Minimal" required>
+                        <input name="stok_minimal" type="number" min={0} defaultValue={product?.stok_minimal ?? 20} required placeholder="Masukan stok minimal" />
+                    </CanvasFormRow>
+                    {isEdit && (
+                        <CanvasFormRow label="Status" required>
+                            <select name="status" defaultValue={product?.status ?? 'active'} required>
+                                <option value="active">Aktif</option>
+                                <option value="inactive">Nonaktif</option>
+                            </select>
+                        </CanvasFormRow>
+                    )}
+                    <CanvasFormRow label="Barcode" required>
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                            <input name="kode_barang" value={productBarcode} onChange={(event) => setProductBarcode(event.target.value)} required placeholder="Masukan barcode" />
+                            <Button variant="soft" onClick={generateBarcode}>Generate</Button>
+                        </div>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Deskripsi">
+                        <textarea name="deskripsi" defaultValue={product?.deskripsi ?? ''} placeholder="Deskripsi singkat produk" />
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="soft" onClick={onBack}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>
+        </section>
+    );
+}
+
+function CategoryForm({ category, onBack, props }: { category?: Category; onBack: () => void; props: AppProps }) {
+    const isEdit = Boolean(category);
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Kategori' : 'Tambah Kategori'}</h1>
+                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui nama kategori agar katalog produk tetap rapi.' : 'Tambahkan kelompok produk agar katalog dan filter kasir lebih rapi.'}</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={isEdit ? category?.update_url ?? '' : props.routes.categoriesStore ?? ''} className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    {isEdit && <input type="hidden" name="_method" value="PUT" />}
+                    <CanvasFormRow label="Nama" required>
+                        <input name="nama_kategori" defaultValue={category?.nama_kategori ?? ''} required placeholder="Contoh: Minuman" />
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="soft" onClick={onBack}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>
+        </section>
+    );
+}
+
+function Categories({ props, onCreate, onEdit }: { props: AppProps; onCreate: () => void; onEdit: (category: Category) => void }) {
+    const [sortKey, setSortKey] = useState<'name' | 'products'>('name');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const rows = props.categories.map((category) => {
+        const products = props.products.filter((product) => product.kategori === category.nama_kategori);
+
+        return {
+            ...category,
+            productCount: products.length,
+        };
+    });
+    const sortedRows = [...rows].sort((first, second) => {
+        const direction = sortDirection === 'asc' ? 1 : -1;
+
+        if (sortKey === 'products') {
+            return (first.productCount - second.productCount) * direction;
+        }
+
+        return first.nama_kategori.localeCompare(second.nama_kategori, 'id') * direction;
+    });
+    const toggleSort = (key: 'name' | 'products') => {
+        if (sortKey === key) {
+            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+            return;
+        }
+
+        setSortKey(key);
+        setSortDirection('asc');
+    };
+    const sortIcon = (key: 'name' | 'products') => {
+        const active = sortKey === key;
+        const upActive = active && sortDirection === 'asc';
+        const downActive = active && sortDirection === 'desc';
+
+        return (
+            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
+                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 0 8 5H0L4 0Z" />
+                </svg>
+                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 5 0 0h8L4 5Z" />
+                </svg>
+            </span>
+        );
+    };
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Kategori</h1>
+                    <p className="text-sm text-muted-foreground">Ringkasan kategori produk dan jumlah barang yang terhubung.</p>
+                </div>
+                <Button className="self-start" variant="primary" onClick={onCreate}>Tambah</Button>
+            </div>
+
+            <Card>
+                <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th className="w-20 !text-center">No</th>
+                                <th className="!text-center">
+                                    <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort('name')}>
+                                        Nama {sortIcon('name')}
+                                    </button>
+                                </th>
+                                <th className="w-56 !text-center">
+                                    <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort('products')}>
+                                        Jumlah Produk {sortIcon('products')}
+                                    </button>
+                                </th>
+                                <th className="w-52 !text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedRows.length ? sortedRows.map((category, index) => (
+                                <tr key={category.id}>
+                                    <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                                    <td><strong className="text-foreground">{category.nama_kategori}</strong></td>
+                                    <td className="!text-center font-semibold text-foreground">{category.productCount}</td>
+                                    <td className="!text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                            <button className="grid size-7 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${category.nama_kategori}`} onClick={() => onEdit(category)}>
+                                                <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M12 20h9" />
+                                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
+                                                </svg>
+                                            </button>
+                                            {category.destroy_url && <button className="grid size-7 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${category.nama_kategori}`} onClick={() => {
+                                                if (window.confirm(`Hapus kategori ${category.nama_kategori}?`)) {
+                                                    postForm(category.destroy_url, props.csrf, { _method: 'DELETE' });
+                                                }
+                                            }}>
+                                                <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M3 6h18" />
+                                                    <path d="M8 6V4h8v2" />
+                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                    <path d="M10 11v5" />
+                                                    <path d="M14 11v5" />
+                                                </svg>
+                                            </button>}
+                                        </div>
+                                    </td>
+                                </tr>
+                            )) : <tr><td className="text-center text-muted-foreground" colSpan={4}>Belum ada kategori.</td></tr>}
+                        </tbody>
+                    </table>
+                </DataTable>
+            </Card>
+        </section>
+    );
+}
+
+function SupplierForm({ supplier, onBack, props }: { supplier?: Supplier; onBack: () => void; props: AppProps }) {
+    const isEdit = Boolean(supplier);
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Suplier' : 'Tambah Suplier'}</h1>
+                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui kontak dan alamat suplier.' : 'Tambahkan data pemasok untuk kebutuhan pembelian dan stok.'}</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={isEdit ? supplier?.update_url ?? '' : props.routes.suppliersStore ?? ''} className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    {isEdit && <input type="hidden" name="_method" value="PUT" />}
+                    <CanvasFormRow label="Nama" required>
+                        <input name="nama" defaultValue={supplier?.nama ?? ''} required placeholder="Masukan nama suplier" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Nomor Telepon">
+                        <input name="nomor_telepon" defaultValue={supplier?.nomor_telepon ?? ''} placeholder="Masukan nomor telepon" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Email">
+                        <input name="email" type="email" defaultValue={supplier?.email ?? ''} placeholder="Masukan email" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Alamat">
+                        <textarea name="alamat" defaultValue={supplier?.alamat ?? ''} placeholder="Masukan alamat lengkap" />
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="soft" onClick={onBack}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>
+        </section>
+    );
+}
+
+function Suppliers({ props, onCreate, onEdit }: { props: AppProps; onCreate: () => void; onEdit: (supplier: Supplier) => void }) {
+    const [sortKey, setSortKey] = useState<'name' | 'phone' | 'email'>('name');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const sortedRows = [...props.suppliers].sort((first, second) => {
+        const direction = sortDirection === 'asc' ? 1 : -1;
+        const firstValue = sortKey === 'phone' ? first.nomor_telepon ?? '' : sortKey === 'email' ? first.email ?? '' : first.nama;
+        const secondValue = sortKey === 'phone' ? second.nomor_telepon ?? '' : sortKey === 'email' ? second.email ?? '' : second.nama;
+
+        return firstValue.localeCompare(secondValue, 'id') * direction;
+    });
+    const toggleSort = (key: 'name' | 'phone' | 'email') => {
+        if (sortKey === key) {
+            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+            return;
+        }
+
+        setSortKey(key);
+        setSortDirection('asc');
+    };
+    const sortIcon = (key: 'name' | 'phone' | 'email') => {
+        const active = sortKey === key;
+        const upActive = active && sortDirection === 'asc';
+        const downActive = active && sortDirection === 'desc';
+
+        return (
+            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
+                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 0 8 5H0L4 0Z" />
+                </svg>
+                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 5 0 0h8L4 5Z" />
+                </svg>
+            </span>
+        );
+    };
+    const sortableHeader = (label: string, key: 'name' | 'phone' | 'email') => (
+        <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort(key)}>
+            {label} {sortIcon(key)}
+        </button>
+    );
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Suplier</h1>
+                    <p className="text-sm text-muted-foreground">Kelola data pemasok, kontak, email, dan alamat untuk kebutuhan stok.</p>
+                </div>
+                <Button className="self-start" variant="primary" onClick={onCreate}>Tambah</Button>
+            </div>
+
+            <Card>
+                <DataTable className="[&_table]:min-w-[920px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th className="w-20 !text-center">No</th>
+                                <th className="!text-center">{sortableHeader('Nama', 'name')}</th>
+                                <th className="w-44 !text-center">{sortableHeader('Nomor Telepon', 'phone')}</th>
+                                <th className="w-56 !text-center">{sortableHeader('Email', 'email')}</th>
+                                <th className="!text-center">Alamat</th>
+                                <th className="w-52 !text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedRows.length ? sortedRows.map((supplier, index) => (
+                                <tr key={supplier.id}>
+                                    <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                                    <td><strong className="text-foreground">{supplier.nama}</strong></td>
+                                    <td className="!text-center text-foreground">{supplier.nomor_telepon || '-'}</td>
+                                    <td className="!text-center text-foreground">{supplier.email || '-'}</td>
+                                    <td className="text-foreground">{supplier.alamat || '-'}</td>
+                                    <td className="!text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                            <button className="grid size-7 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${supplier.nama}`} onClick={() => onEdit(supplier)}>
+                                                <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M12 20h9" />
+                                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
+                                                </svg>
+                                            </button>
+                                            {supplier.destroy_url && <button className="grid size-7 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${supplier.nama}`} onClick={() => {
+                                                if (window.confirm(`Hapus suplier ${supplier.nama}?`)) {
+                                                    postForm(supplier.destroy_url, props.csrf, { _method: 'DELETE' });
+                                                }
+                                            }}>
+                                                <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M3 6h18" />
+                                                    <path d="M8 6V4h8v2" />
+                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                    <path d="M10 11v5" />
+                                                    <path d="M14 11v5" />
+                                                </svg>
+                                            </button>}
+                                        </div>
+                                    </td>
+                                </tr>
+                            )) : <tr><td className="text-center text-muted-foreground" colSpan={6}>Belum ada suplier.</td></tr>}
+                        </tbody>
+                    </table>
+                </DataTable>
+            </Card>
+        </section>
+    );
+}
+
+function History({ props, onEditTransaction }: { props: AppProps; onEditTransaction: (transaction: Transaction) => void }) {
+    if (props.user.isAdmin) {
+        return <ReportPage props={props} />;
+    }
+
+    return <TransactionHistory props={props} onEdit={onEditTransaction} />;
+}
+
+function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (transaction: Transaction) => void }) {
+    const [query, setQuery] = useState('');
+    const [paymentStatus, setPaymentStatus] = useState('all');
+    const [paymentType, setPaymentType] = useState('all');
+    const visibleTransactions = props.historyTransactions.filter((transaction) => transaction.status !== 'void');
+    const filteredTransactions = visibleTransactions.filter((transaction) => {
+        const keyword = query.trim().toLowerCase();
+        const detailText = transaction.details.map((detail) => detail.product).join(' ');
+        const matchesKeyword = !keyword || `${transaction.kode_transaksi} ${transaction.cashier} ${transaction.customer_name ?? ''} ${detailText}`.toLowerCase().includes(keyword);
+        const matchesStatus = paymentStatus === 'all' || transaction.payment_status === paymentStatus;
+        const matchesType = paymentType === 'all' || transaction.payment_type === paymentType;
+
+        return matchesKeyword && matchesStatus && matchesType;
+    });
+
+    return (
+        <section className="grid gap-6">
+            <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Riwayat Transaksi</h1><p className="text-sm text-muted-foreground">Daftar transaksi berdasarkan akses akun</p></div>
+
+            <Card>
+                <div className="mb-5 grid gap-3 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} aria-label="Filter status pembayaran">
+                        <option value="all">Semua status</option>
+                        <option value="paid">Lunas</option>
+                        <option value="pending">Belum Bayar</option>
+                    </select>
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={paymentType} onChange={(event) => setPaymentType(event.target.value)} aria-label="Filter metode pembayaran">
+                        <option value="all">Semua metode</option>
+                        <option value="cash">Tunai</option>
+                        <option value="transfer">Transfer</option>
+                    </select>
+                    <label className="relative flex h-10 items-center">
+                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari transaksi, kasir, atau pelanggan..." />
+                    </label>
+                </div>
+                <TransactionTable transactions={filteredTransactions} showCashier={props.user.isAdmin} csrf={props.csrf} onEdit={onEdit} />
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredTransactions.length} dari {visibleTransactions.length} transaksi</p>
+            </Card>
+        </section>
+    );
+}
+
+function TransactionEditForm({ onBack, props, transaction }: { onBack: () => void; props: AppProps; transaction: Transaction }) {
+    const [customerName, setCustomerName] = useState(transaction.customer_name ?? '');
+    const [createdAt, setCreatedAt] = useState(transaction.created_at_input);
+    const [paymentType, setPaymentType] = useState<'cash' | 'transfer'>((transaction.payment_type === 'transfer' ? 'transfer' : 'cash'));
+    const [received, setReceived] = useState(String(transaction.uang_diterima || transaction.total || ''));
+    const [items, setItems] = useState(() => transaction.details.map((detail, index) => ({
+        key: `${detail.id}-${index}`,
+        productId: detail.product_id ? String(detail.product_id) : '',
+        qty: String(detail.qty),
+        discountValue: String(Math.max(0, detail.harga - Math.round(detail.subtotal / Math.max(1, detail.qty)))),
+    })));
+    const activeProducts = props.products.filter((product) => product.status === 'active' || items.some((item) => String(product.id) === item.productId));
+    const rowTotal = (item: { productId: string; qty: string; discountValue: string }) => {
+        const product = props.products.find((row) => String(row.id) === item.productId);
+        const qty = Number(numericOnly(item.qty));
+        const discount = Math.min(Number(numericOnly(item.discountValue)), product?.harga_jual ?? 0);
+
+        return Math.max(0, (product?.harga_jual ?? 0) - discount) * qty;
+    };
+    const total = items.reduce((sum, item) => sum + rowTotal(item), 0);
+    const receivedNumber = paymentType === 'cash' ? Number(numericOnly(received)) : total;
+    const change = paymentType === 'cash' ? Math.max(0, receivedNumber - total) : 0;
+    const updateItem = (key: string, field: 'productId' | 'qty' | 'discountValue', value: string) => {
+        setItems((current) => current.map((item) => item.key === key ? { ...item, [field]: field === 'productId' ? value : numericOnly(value) } : item));
+    };
+    const addItem = () => {
+        setItems((current) => [...current, { key: `new-${Date.now()}`, productId: '', qty: '1', discountValue: '' }]);
+    };
+    const removeItem = (key: string) => {
+        setItems((current) => current.length > 1 ? current.filter((item) => item.key !== key) : current);
+    };
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Edit Transaksi</h1>
+                    <p className="text-sm text-muted-foreground">Koreksi produk atau jumlah jika ada kesalahan input transaksi.</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={transaction.update_url ?? ''} className="gap-5 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    <input type="hidden" name="_method" value="PUT" />
+                    <div className="grid gap-4 rounded-md border border-ld bg-background p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                                <span className="text-xs font-semibold uppercase text-muted-foreground">Nomor</span>
+                                <strong className="mt-1 block text-sm text-foreground">{transaction.kode_transaksi}</strong>
+                            </div>
+                            <Field label="Tanggal">
+                                <input name="created_at" type="datetime-local" value={createdAt} onChange={(event) => setCreatedAt(event.target.value)} required />
+                            </Field>
+                            <Field label="Metode Pembayaran">
+                                <select name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value as 'cash' | 'transfer')} required>
+                                    <option value="cash">Tunai</option>
+                                    <option value="transfer">Transfer</option>
+                                </select>
+                            </Field>
+                            <Field label="Uang Diterima">
+                                <input type="hidden" name="uang_diterima" value={receivedNumber} />
+                                <input type="text" inputMode="numeric" value={paymentType === 'cash' ? formatThousands(received) : formatThousands(total)} onChange={(event) => setReceived(numericOnly(event.target.value))} readOnly={paymentType === 'transfer'} placeholder="Masukan uang diterima" />
+                            </Field>
+                        </div>
+                        <div className="grid content-center gap-2 rounded-md bg-lightprimary px-4 py-3">
+                            <span className="text-xs font-semibold uppercase text-muted-foreground">Total Baru</span>
+                            <strong className="text-lg text-primary">{rupiah(total)}</strong>
+                            <div className="flex justify-between gap-3 text-xs font-semibold text-muted-foreground"><span>Kembalian</span><span>{rupiah(change)}</span></div>
+                        </div>
+                    </div>
+                    <CanvasFormRow label="Pembeli/Member">
+                        <input name="customer_name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Nama pembeli atau member" />
+                    </CanvasFormRow>
+                    <div className="grid gap-3">
+                        <div className="grid gap-2">
+                            <div className="hidden gap-3 px-1 text-xs font-semibold uppercase text-muted-foreground md:grid md:grid-cols-[minmax(220px,1fr)_110px_140px_130px_44px]">
+                                <span>Produk</span>
+                                <span>Jumlah</span>
+                                <span>Diskon/item</span>
+                                <span>Total</span>
+                                <span />
+                            </div>
+                            {items.map((item, index) => (
+                                <div className="grid gap-3 rounded-md border border-ld bg-card p-3 md:grid-cols-[minmax(220px,1fr)_110px_140px_130px_44px] md:items-center" key={item.key}>
+                                    <select name={`items[${index}][product_id]`} value={item.productId} onChange={(event) => updateItem(item.key, 'productId', event.target.value)} required>
+                                        <option value="">Pilih produk</option>
+                                        {activeProducts.map((product) => <option key={product.id} value={product.id}>{product.nama_barang}</option>)}
+                                    </select>
+                                    <label>
+                                        <input type="hidden" name={`items[${index}][qty]`} value={Number(numericOnly(item.qty))} />
+                                        <input type="text" inputMode="numeric" value={formatThousands(item.qty)} onChange={(event) => updateItem(item.key, 'qty', event.target.value)} required placeholder="Qty" />
+                                    </label>
+                                    <label>
+                                        <input type="hidden" name={`items[${index}][discount_value]`} value={Number(numericOnly(item.discountValue))} />
+                                        <input type="text" inputMode="numeric" value={formatThousands(item.discountValue)} onChange={(event) => updateItem(item.key, 'discountValue', event.target.value)} placeholder="0" />
+                                    </label>
+                                    <strong className="text-sm text-foreground">{rupiah(rowTotal(item))}</strong>
+                                    <button className="grid size-10 place-items-center rounded-md text-error hover:bg-lighterror" type="button" aria-label="Hapus item" onClick={() => removeItem(item.key)}>
+                                        <svg className="size-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M3 6h18" />
+                                            <path d="M8 6V4h8v2" />
+                                            <path d="M19 6l-1 14H6L5 6" />
+                                            <path d="M10 11v5" />
+                                            <path d="M14 11v5" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <Button className="self-start" variant="soft" onClick={addItem}>Tambah Item</Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="primary" type="submit" disabled={!transaction.update_url}>Simpan</Button>
+                        <Button variant="soft" onClick={onBack}>Batal</Button>
+                    </div>
+                </FormStack>
+            </Card>
+        </section>
+    );
+}
+
+function Operations({ props }: { props: AppProps }) {
+    if (!props.user.isAdmin) {
+        return <OperationalPanels props={props} />;
+    }
+
+    const [category, setCategory] = useState('all');
+    const [query, setQuery] = useState('');
+    const [showExpenseForm, setShowExpenseForm] = useState(false);
+    const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+    const editingExpense = props.expenses.find((expense) => expense.id === editingExpenseId) ?? null;
+    const categories = Array.from(new Set(props.expenses.map((expense) => expense.category)));
+    const filteredExpenses = props.expenses.filter((expense) => {
+        const keyword = query.trim().toLowerCase();
+        const matchesCategory = category === 'all' || expense.category === category;
+        const matchesKeyword = !keyword || `${expense.category} ${expense.description} ${expense.user}`.toLowerCase().includes(keyword);
+
+        return matchesCategory && matchesKeyword;
+    });
+    const totalExpense = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Pengeluaran Toko</h1><p className="text-sm text-muted-foreground">Catat dan kelola pengeluaran operasional</p></div>
+                <div className="flex flex-wrap gap-2">{props.routes.expensesPrint && <a className="inline-flex h-10 items-center justify-center rounded-md bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.expensesPrint} target="_blank">Cetak Pengeluaran</a>}<Button variant="primary" onClick={() => { setEditingExpenseId(null); setShowExpenseForm((value) => !value); }}>{showExpenseForm ? 'Tutup Formulir' : 'Tambah Pengeluaran'}</Button></div>
+            </div>
+
+            <Card>
+                <div className="mb-5 flex flex-col gap-3 rounded-md border border-error/30 bg-lighterror px-5 py-4 text-error sm:flex-row sm:items-center sm:justify-between"><div className="grid gap-1"><span className="text-sm font-semibold">Total pengeluaran</span><strong className="text-2xl font-semibold leading-8">{rupiah(totalExpense)}</strong></div><b className="text-sm">{filteredExpenses.length} pengeluaran tercatat</b></div>
+                {showExpenseForm && <Card className="mb-5 border-ld bg-background" title="Tambah Pengeluaran">
+                    <FormGrid method="POST" action={props.routes.expensesStore ?? ''} encType="multipart/form-data">
+                        <input type="hidden" name="_token" value={props.csrf} />
+                        <Field label="Tanggal"><input name="spent_at" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></Field>
+                        <Field label="Kategori"><select name="category" required><option value="Listrik">Listrik</option><option value="Gaji">Gaji</option><option value="Perlengkapan">Perlengkapan</option><option value="Sewa">Sewa</option><option value="Operasional">Operasional</option></select></Field>
+                        <Field label="Nominal"><input name="amount" type="number" min={0} required /></Field>
+                        <Field label="Bukti"><input name="attachment" type="file" accept=".jpg,.jpeg,.png,.pdf" /></Field>
+                        <Field label="Deskripsi" className="xl:col-span-4"><input name="description" placeholder="Contoh: bayar listrik bulan ini" required /></Field>
+                        <Button variant="primary" type="submit">Simpan Pengeluaran</Button>
+                    </FormGrid>
+                </Card>}
+                {editingExpense && <Card className="mb-5 border-ld bg-background" title="Ubah Pengeluaran">
+                    <FormGrid method="POST" action={editingExpense.update_url ?? ''} encType="multipart/form-data">
+                        <input type="hidden" name="_token" value={props.csrf} />
+                        <input type="hidden" name="_method" value="PUT" />
+                        <Field label="Tanggal"><input name="spent_at" type="date" defaultValue={editingExpense.spent_at_input} required /></Field>
+                        <Field label="Kategori"><select name="category" defaultValue={editingExpense.category} required><option value="Listrik">Listrik</option><option value="Gaji">Gaji</option><option value="Perlengkapan">Perlengkapan</option><option value="Sewa">Sewa</option><option value="Operasional">Operasional</option></select></Field>
+                        <Field label="Nominal"><input name="amount" type="number" min={0} defaultValue={editingExpense.amount} required /></Field>
+                        <Field label="Ganti Bukti"><input name="attachment" type="file" accept=".jpg,.jpeg,.png,.pdf" /></Field>
+                        <Field label="Deskripsi" className="xl:col-span-4"><input name="description" defaultValue={editingExpense.description} required /></Field>
+                        <Button variant="primary" type="submit">Update Pengeluaran</Button>
+                        <Button onClick={() => setEditingExpenseId(null)}>Batal</Button>
+                    </FormGrid>
+                </Card>}
+                <div className="mb-5 grid gap-3 xl:grid-cols-[180px_minmax(360px,520px)_minmax(0,1fr)]">
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori pengeluaran">
+                        <option value="all">Semua kategori</option>
+                        {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                    <form method="GET" action={props.routes.dashboard ?? ''} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <input type="hidden" name="page" value="operations" />
+                        <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={props.filters.start_date ?? ''} aria-label="Tanggal mulai" />
+                        <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={props.filters.end_date ?? ''} aria-label="Tanggal akhir" />
+                        <Button variant="soft" type="submit">Filter periode</Button>
+                    </form>
+                    <label className="relative flex h-10 items-center">
+                        <span className="pointer-events-none absolute left-4 text-sm text-muted-foreground" aria-hidden="true">Cari</span>
+                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 ps-[72px] text-sm text-foreground outline-none focus:border-primary" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari deskripsi pengeluaran..." />
+                    </label>
+                </div>
+                <ExpenseTable expenses={filteredExpenses} csrf={props.csrf} onEdit={(expense) => { setShowExpenseForm(false); setEditingExpenseId(expense.id); }} />
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredExpenses.length} dari {props.expenses.length} data</p>
+            </Card>
+
+            <OperationalPanels props={props} compact />
+        </section>
+    );
+}
+
+function ReportPage({ props }: { props: AppProps }) {
+    const [tab, setTab] = useState<'income' | 'expense' | 'comparison'>('income');
+    const reportTabs = [
+        { id: 'income' as const, label: 'Pendapatan' },
+        { id: 'expense' as const, label: 'Pengeluaran' },
+        { id: 'comparison' as const, label: 'Perbandingan' },
+    ];
+    const expenseTotal = props.expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const grossProfit = Number(props.reportStats.income ?? 0) - expenseTotal;
+    const paidTransactions = props.historyTransactions.filter((transaction) => transaction.status !== 'void' && transaction.payment_status === 'paid');
+    const revenueByDate = paidTransactions.reduce<Record<string, number>>((carry, transaction) => {
+        const label = transaction.created_at.split(' ')[0] || 'Tanggal';
+        carry[label] = (carry[label] ?? 0) + transaction.total;
+
+        return carry;
+    }, {});
+    const revenueRows = Object.entries(revenueByDate).reverse().slice(-6).map(([label, value]) => ({ label, value }));
+    const methodRows = [
+        { label: 'Tunai', value: paidTransactions.filter((transaction) => transaction.payment_type === 'cash').length, color: '#22c55e' },
+        { label: 'Transfer', value: paidTransactions.filter((transaction) => transaction.payment_type === 'transfer').length, color: '#0ea5e9' },
+        { label: 'Piutang', value: props.historyTransactions.filter((transaction) => transaction.payment_status === 'pending').length, color: '#f59e0b' },
+    ];
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Laporan</h1><p className="text-sm text-muted-foreground">Analisa keuangan dan performa toko</p></div>
+                {props.routes.transactionsExportPdf && <a className="inline-flex h-10 items-center justify-center rounded-md bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.transactionsExportPdf}>Cetak Laporan</a>}
+            </div>
+
+            <Card>
+                <form method="GET" action={props.routes.dashboard ?? ''} className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_180px_180px_auto]">
+                    <input type="hidden" name="page" value="history" />
+                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={props.filters.start_date ?? ''} aria-label="Tanggal mulai" />
+                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={props.filters.end_date ?? ''} aria-label="Tanggal akhir" />
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_status" defaultValue={props.filters.payment_status ?? ''} aria-label="Status pembayaran">
+                        <option value="">Semua status</option>
+                        <option value="paid">Lunas</option>
+                        <option value="pending">Belum Bayar</option>
+                    </select>
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_type" defaultValue={props.filters.payment_type ?? ''} aria-label="Metode pembayaran">
+                        <option value="">Semua metode</option>
+                        <option value="cash">Tunai</option>
+                        <option value="transfer">Transfer</option>
+                    </select>
+                    <Button variant="primary" type="submit">Filter periode</Button>
+                </form>
+            </Card>
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <ReportMetric label="Total transaksi" value={props.reportStats.transactions} tone="info" />
+                <ReportMetric label="Total pendapatan" value={rupiah(props.reportStats.income)} tone="primary" />
+                <ReportMetric label="Total pengeluaran" value={rupiah(expenseTotal)} tone="error" />
+                <ReportMetric label="Laba kotor" value={rupiah(grossProfit)} tone="success" />
+            </div>
+
+            <Tabs active={tab} items={reportTabs} onChange={setTab} />
+
+            {tab === 'income' && <Card className="bg-background" title="Pendapatan Periode"><ReportLineChart points={revenueRows.length ? revenueRows : props.salesChart.map((point) => ({ label: point.label, value: point.count }))} /></Card>}
+            {tab === 'expense' && <Card className="bg-background" title="Pengeluaran Operasional"><ExpenseCategoryChart expenses={props.expenses} /></Card>}
+            {tab === 'comparison' && <Card className="bg-background" title="Pendapatan vs Pengeluaran"><ComparisonBars income={Number(props.reportStats.income ?? 0)} expense={expenseTotal} /></Card>}
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
+                <Card title="Metode Pembayaran"><PaymentDonut rows={methodRows} /></Card>
+                <Card title="Detail Transaksi"><TransactionTable transactions={props.historyTransactions.slice(0, 8)} showCashier={props.user.isAdmin} csrf={props.csrf} /></Card>
+            </div>
+        </section>
+    );
+}
+
+function ReportMetric({ label, tone, value }: { label: string; tone: 'info' | 'primary' | 'error' | 'success'; value: React.ReactNode }) {
+    const toneClass = {
+        info: 'bg-lightinfo text-info',
+        primary: 'bg-lightprimary text-primary',
+        error: 'bg-lighterror text-error',
+        success: 'bg-lightsuccess text-successemphasis',
+    }[tone];
+
+    return (
+        <article className={`grid min-h-28 content-between rounded-md border border-ld p-5 ${toneClass}`}>
+            <span className="text-sm font-bold leading-5">{label}</span>
+            <strong className="text-2xl font-semibold leading-8 text-foreground">{value}</strong>
+        </article>
+    );
+}
+
+function OperationalPanels({ props, compact = false }: { props: AppProps; compact?: boolean }) {
+    return (
+        <section className={compact ? 'grid gap-6 pt-6' : 'grid gap-6'}>
+            {!compact && <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Operasional POS</h1><p className="text-sm text-muted-foreground">Shift kasir, stock opname, dan audit aktivitas penting.</p></div>}
+            <Card title={props.currentShift ? 'Shift Aktif' : 'Buka Shift Kasir'}>
+                {props.currentShift ? (
+                    <div className="grid gap-4">
+                        <div className="flex items-center gap-4 rounded-md border border-ld bg-card p-4">
+                            <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-lightprimary font-bold text-primary">S</span>
+                            <div className="min-w-0 flex-1"><strong className="block truncate text-sm text-foreground">{props.currentShift.cashier}</strong><span className="text-sm text-muted-foreground">Buka {props.currentShift.opened_at} - modal {rupiah(props.currentShift.opening_cash)}</span></div>
+                        </div>
+                        <FormGrid method="POST" action={props.currentShift.close_url}>
+                            <input type="hidden" name="_token" value={props.csrf} />
+                            <input type="hidden" name="_method" value="PUT" />
+                            <Field label="Uang Fisik Akhir"><input name="closing_cash" type="number" min={0} required /></Field>
+                            <Field label="Catatan"><input name="notes" /></Field>
+                            <Button variant="primary" type="submit">Tutup Shift</Button>
+                        </FormGrid>
+                    </div>
+                ) : (
+                    <FormGrid method="POST" action={props.routes.cashierShiftsOpen ?? ''}>
+                        <input type="hidden" name="_token" value={props.csrf} />
+                        <Field label="Modal Awal"><input name="opening_cash" type="number" min={0} defaultValue={0} required /></Field>
+                        <Field label="Catatan"><input name="notes" /></Field>
+                        <Button variant="primary" type="submit">Buka Shift</Button>
+                    </FormGrid>
+                )}
+            </Card>
+
+            <Card title="Riwayat Shift">
+                <DataTable className="[&_table]:min-w-[920px]">
+                    <table>
+                        <thead><tr><th>Kasir</th><th>Buka</th><th>Tutup</th><th>Cash</th><th>Transfer</th><th>Pending</th><th>Selisih</th></tr></thead>
+                        <tbody>{props.recentShifts.length ? props.recentShifts.map((shift) => <tr key={shift.id}><td className="!text-left"><strong className="text-foreground">{shift.cashier}</strong></td><td>{shift.opened_at}</td><td>{shift.closed_at || '-'}</td><td className="font-bold text-foreground whitespace-nowrap">{rupiah(shift.cash_sales)}</td><td className="font-bold text-foreground whitespace-nowrap">{rupiah(shift.transfer_sales)}</td><td className="font-bold text-foreground whitespace-nowrap">{rupiah(shift.pending_sales)}</td><td className="font-bold text-foreground whitespace-nowrap">{rupiah(shift.difference)}</td></tr>) : <tr><td className="text-center text-muted-foreground" colSpan={7}>Belum ada shift.</td></tr>}</tbody>
+                    </table>
+                </DataTable>
+            </Card>
+
+            {props.user.isAdmin && <Card title="Stock Opname">
+                <FormGrid method="POST" action={props.routes.stockOpnamesStore ?? ''}>
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    <Field label="Tanggal"><input name="opname_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} /></Field>
+                    <Field label="Produk"><select name="product_id" required>{props.products.map((product) => <option key={product.id} value={product.id}>{product.nama_barang} - sistem {product.stok}</option>)}</select></Field>
+                    <Field label="Stok Fisik"><input name="actual_stock" type="number" min={0} required /></Field>
+                    <Field label="Alasan"><input name="reason" required /></Field>
+                    <Button variant="primary" type="submit">Simpan Opname</Button>
+                </FormGrid>
+                <DataTable className="mt-4 [&_table]:min-w-[820px]">
+                    <table>
+                        <thead><tr><th>Tanggal</th><th>User</th><th>Produk</th><th>Sistem</th><th>Fisik</th><th>Selisih</th></tr></thead>
+                        <tbody>{props.stockOpnames.length ? props.stockOpnames.flatMap((opname) => opname.adjustments.map((adjustment, index) => <tr key={`${opname.id}-${index}`}><td>{opname.date}</td><td>{opname.user}</td><td className="!text-left"><strong className="text-foreground">{adjustment.product}</strong></td><td>{adjustment.system_stock}</td><td>{adjustment.actual_stock}</td><td className={adjustment.difference === 0 ? 'text-foreground' : 'font-bold text-error'}>{adjustment.difference}</td></tr>)) : <tr><td className="text-center text-muted-foreground" colSpan={6}>Belum ada opname.</td></tr>}</tbody>
+                    </table>
+                </DataTable>
+            </Card>}
+
+            {props.user.isAdmin && <Card title="Audit Log">
+                <DataTable className="[&_table]:min-w-[720px]">
+                    <table>
+                        <thead><tr><th>Waktu</th><th>User</th><th>Aksi</th></tr></thead>
+                        <tbody>{props.auditLogs.length ? props.auditLogs.map((log) => <tr key={log.id}><td>{log.time}</td><td className="!text-left"><strong className="text-foreground">{log.user}</strong></td><td className="!text-left text-muted-foreground">{log.action}</td></tr>) : <tr><td className="text-center text-muted-foreground" colSpan={3}>Belum ada audit.</td></tr>}</tbody>
+                    </table>
+                </DataTable>
+            </Card>}
+        </section>
+    );
+}
+
+function ReportLineChart({ points }: { points: Array<{ label: string; value: number }> }) {
+    const safePoints = points.length ? points : [{ label: '-', value: 0 }];
+    const max = Math.max(...safePoints.map((point) => point.value), 1);
+    const coordinates = safePoints.map((point, index) => {
+        const x = safePoints.length === 1 ? 50 : (index / (safePoints.length - 1)) * 100;
+        const y = 48 - (point.value / max) * 38;
+
+        return { ...point, x, y };
+    });
+
+    return (
+        <div className="relative grid gap-3">
+            <svg className="h-72 w-full overflow-visible rounded-md bg-card p-3" viewBox="0 0 100 52" preserveAspectRatio="none" aria-hidden="true">
+                {[10, 20, 30, 40].map((y) => <line className="stroke-border" key={y} x1="0" x2="100" y1={y} y2={y} />)}
+                <polyline className="fill-none stroke-primary stroke-[2.5]" points={coordinates.map((point) => `${point.x},${point.y}`).join(' ')} />
+                {coordinates.map((point) => <circle className="fill-card stroke-primary stroke-[1.75]" key={`${point.label}-${point.x}`} cx={point.x} cy={point.y} r="1.25" />)}
+            </svg>
+            <div className="grid grid-flow-col justify-between gap-3 text-xs font-bold text-muted-foreground">{coordinates.map((point) => <span className="truncate" key={point.label}>{point.label}</span>)}</div>
+            <div className="absolute right-4 top-4 rounded-md bg-lightprimary px-3 py-1 text-xs font-semibold text-primary">{rupiah(max)}</div>
+        </div>
+    );
+}
+
+function PaymentDonut({ rows }: { rows: Array<{ label: string; value: number; color: string }> }) {
+    const total = Math.max(rows.reduce((sum, row) => sum + row.value, 0), 1);
+    let cursor = 0;
+    const stops = rows.map((row) => {
+        const start = cursor;
+        cursor += (row.value / total) * 360;
+
+        return `${row.color} ${start}deg ${cursor}deg`;
+    }).join(', ');
+
+    return (
+        <div className="grid gap-5 sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center xl:grid-cols-1">
+            <div className="mx-auto grid size-40 place-items-center rounded-full" style={{ background: `conic-gradient(${stops})` }}>
+                <div className="grid size-24 place-items-center rounded-full bg-card text-center shadow-sm"><strong className="text-xl leading-6 text-foreground">{total}</strong></div>
+            </div>
+            <div className="grid gap-3">
+                {rows.map((row) => <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-ld bg-card px-3 py-2" key={row.label}><span className="size-3 rounded-full" style={{ background: row.color }} /><b className="text-sm text-foreground">{row.label}</b><strong className="text-sm text-muted-foreground">{row.value} ({Math.round((row.value / total) * 100)}%)</strong></div>)}
+            </div>
+        </div>
+    );
+}
+
+function ComparisonBars({ income, expense }: { income: number; expense: number }) {
+    const max = Math.max(income, expense, 1);
+
+    return (
+        <div className="grid gap-4">
+            {[{ label: 'Pendapatan', value: income, color: 'bg-primary' }, { label: 'Pengeluaran', value: expense, color: 'bg-error' }].map((row) => <div className="grid gap-2 md:grid-cols-[140px_minmax(0,1fr)_160px] md:items-center" key={row.label}><span className="text-sm font-bold text-foreground">{row.label}</span><div className="h-4 overflow-hidden rounded-full bg-muted"><i className={`block h-full rounded-full ${row.color}`} style={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} /></div><strong className="text-sm text-foreground md:text-right">{rupiah(row.value)}</strong></div>)}
+        </div>
+    );
+}
+
+function ExpenseCategoryChart({ expenses }: { expenses: Expense[] }) {
+    const grouped = expenses.reduce<Record<string, number>>((carry, expense) => {
+        carry[expense.category] = (carry[expense.category] ?? 0) + expense.amount;
+
+        return carry;
+    }, {});
+    const rows = Object.entries(grouped).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+    const max = Math.max(...rows.map((row) => row.value), 1);
+
+    return (
+        <div className="grid gap-4">
+            {rows.length ? rows.map((row) => <div className="grid gap-2 md:grid-cols-[180px_minmax(0,1fr)_160px] md:items-center" key={row.label}><span className="text-sm font-bold text-foreground">{row.label}</span><div className="h-4 overflow-hidden rounded-full bg-muted"><i className="block h-full rounded-full bg-error" style={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} /></div><strong className="text-sm text-foreground md:text-right">{rupiah(row.value)}</strong></div>) : <p className="text-sm text-muted-foreground">Belum ada pengeluaran pada periode ini.</p>}
+        </div>
+    );
+}
+
+function Cashiers({ props }: { props: AppProps }) {
+    const initialTab = props.settingsTab === 'receipt' || props.settingsTab === 'users' || props.settingsTab === 'data' ? props.settingsTab : 'profile';
+    const [tab, setTab] = useState<'profile' | 'receipt' | 'users' | 'data'>(initialTab);
+    const [receiptDraft, setReceiptDraft] = useState<ReceiptSettings>(props.receiptSettings);
+    const settingsTabs = [
+        { id: 'profile' as const, label: 'Profil Toko' },
+        { id: 'receipt' as const, label: 'Struk & Pajak' },
+        { id: 'users' as const, label: 'Pengguna' },
+        { id: 'data' as const, label: 'Data' },
+    ];
+    const updateReceiptDraft = (key: keyof ReceiptSettings, value: string) => {
+        setReceiptDraft((current) => ({ ...current, [key]: value }));
+    };
+
+    return (
+        <section className="grid gap-6">
+            <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Pengaturan Toko</h1><p className="text-sm text-muted-foreground">Konfigurasi sistem dan preferensi toko</p></div>
+            <Tabs active={tab} items={settingsTabs} onChange={setTab} />
+
+                {tab === 'profile' && <div className="grid gap-5 xl:grid-cols-2">
+                    <Card className="bg-background" title="Informasi Toko">
+                        <FormStack className="max-w-[650px]">
+                            <Field label="Nama toko"><input defaultValue="Dalwa Water Tegal" /></Field>
+                            <Field label="Alamat lengkap"><textarea defaultValue="Tegal" /></Field>
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <Field label="Nomor telepon"><input placeholder="+62" /></Field>
+                                <Field label="Nomor WhatsApp"><input placeholder="+62" /></Field>
+                            </div>
+                            <Field label="NPWP"><input placeholder="01.000.000.0-000.000" /></Field>
+                            <Button disabled>Simpan Perubahan</Button>
+                        </FormStack>
+                    </Card>
+                    <Card className="bg-background" title="Profil Akun">
+                        <FormStack as="form" method="POST" action={props.routes.profileUpdate ?? ''} className="max-w-[650px]">
+                            <input type="hidden" name="_token" value={props.csrf} />
+                            <input type="hidden" name="_method" value="PUT" />
+                            <Field label="Nama"><input name="name" defaultValue={props.user.name} required /></Field>
+                            <Field label="Nama pengguna"><input name="username" defaultValue={props.user.username} required /></Field>
+                            <Field label="Email"><input name="email" type="email" defaultValue={props.user.email} required /></Field>
+                            <Button variant="primary" type="submit">Simpan Profil</Button>
+                        </FormStack>
+                    </Card>
+                </div>}
+
+                {tab === 'receipt' && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <Card className="bg-background" title="Format Struk Thermal">
+                        <FormStack as="form" method="POST" action={props.routes.receiptSettingsUpdate ?? ''}>
+                            <input type="hidden" name="_token" value={props.csrf} />
+                            <input type="hidden" name="_method" value="PUT" />
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                <Field label="Nama toko"><input name="receipt_store_name" value={receiptDraft.receipt_store_name} onChange={(event) => updateReceiptDraft('receipt_store_name', event.target.value)} required /></Field>
+                                <Field label="Nomor telepon"><input name="receipt_phone" value={receiptDraft.receipt_phone} onChange={(event) => updateReceiptDraft('receipt_phone', event.target.value)} placeholder="Contoh: 0852-3699-1848" /></Field>
+                            </div>
+                            <Field label="Alamat baris 1"><input name="receipt_address_line_1" value={receiptDraft.receipt_address_line_1} onChange={(event) => updateReceiptDraft('receipt_address_line_1', event.target.value)} placeholder="Contoh: Tegal - Jawa Tengah" /></Field>
+                            <Field label="Alamat baris 2"><input name="receipt_address_line_2" value={receiptDraft.receipt_address_line_2} onChange={(event) => updateReceiptDraft('receipt_address_line_2', event.target.value)} placeholder="Contoh: Jl. Raya Tegalwangi" /></Field>
+                            <div className="grid gap-4 lg:grid-cols-3">
+                                <Field label="Footer 1"><input name="receipt_footer_line_1" value={receiptDraft.receipt_footer_line_1} onChange={(event) => updateReceiptDraft('receipt_footer_line_1', event.target.value)} /></Field>
+                                <Field label="Footer 2"><input name="receipt_footer_line_2" value={receiptDraft.receipt_footer_line_2} onChange={(event) => updateReceiptDraft('receipt_footer_line_2', event.target.value)} /></Field>
+                                <Field label="Footer 3"><input name="receipt_footer_line_3" value={receiptDraft.receipt_footer_line_3} onChange={(event) => updateReceiptDraft('receipt_footer_line_3', event.target.value)} /></Field>
+                            </div>
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                                <Field label="Lebar struk"><select name="receipt_paper_width" value={receiptDraft.receipt_paper_width} onChange={(event) => updateReceiptDraft('receipt_paper_width', event.target.value)}><option value="32">58mm - 32 karakter</option><option value="42">80mm - 42 karakter</option></select></Field>
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                    <SettingsToggle name="receipt_show_cashier" title="Kasir" description="Tampil di struk" checked={receiptDraft.receipt_show_cashier === '1'} onChange={(checked) => updateReceiptDraft('receipt_show_cashier', checked ? '1' : '0')} />
+                                    <SettingsToggle name="receipt_show_customer" title="Pembeli" description="Jika diisi" checked={receiptDraft.receipt_show_customer === '1'} onChange={(checked) => updateReceiptDraft('receipt_show_customer', checked ? '1' : '0')} />
+                                    <SettingsToggle name="receipt_show_payment" title="Pembayaran" description="Metode dan kembali" checked={receiptDraft.receipt_show_payment === '1'} onChange={(checked) => updateReceiptDraft('receipt_show_payment', checked ? '1' : '0')} />
+                                </div>
+                            </div>
+                            <div className="flex justify-end">
+                                <Button variant="primary" type="submit">Simpan Format Struk</Button>
+                            </div>
+                        </FormStack>
+                    </Card>
+                    <Card className="bg-background" title="Preview Struk">
+                        <ReceiptSettingsPreview settings={receiptDraft} cashier={props.user.name} />
+                        <div className="mt-5 grid gap-3 border-t border-ld pt-5">
+                            <div className="grid gap-1"><span className="text-xs font-bold uppercase text-muted-foreground">Printer</span><strong className="text-sm text-foreground">X58MP II</strong></div>
+                            <div className="grid gap-1"><span className="text-xs font-bold uppercase text-muted-foreground">Mode</span><strong className="text-sm text-foreground">Thermal ESC/POS</strong></div>
+                            <SettingsToggle title="Cetak Otomatis" description="Diatur lewat file .env" defaultChecked />
+                            <Button variant="soft" type="button" onClick={() => window.print()}>Tes Tampilan</Button>
+                        </div>
+                    </Card>
+                </div>}
+
+                {tab === 'users' && <div className="grid gap-5">
+                    <Card className="bg-background" title="Tambah Pengguna">
+                        <FormGrid method="POST" action={props.routes.cashiersStore ?? ''}>
+                            <input type="hidden" name="_token" value={props.csrf} />
+                            <Field label="Nama"><input name="name" required /></Field>
+                            <Field label="Nama pengguna"><input name="username" required /></Field>
+                            <Field label="Kata sandi"><input name="password" type="password" required /></Field>
+                            <Field label="Peran"><select name="role"><option value="cashier">Kasir</option><option value="admin">Admin</option></select></Field>
+                            <Field label="Status"><select name="status" defaultValue="active"><option value="active">Aktif</option><option value="inactive">Nonaktif</option></select></Field>
+                            <Button variant="primary" type="submit">Simpan Pengguna</Button>
+                        </FormGrid>
+                    </Card>
+                    <Card className="bg-background" title="Daftar Pengguna">
+                        <DataTable className="[&_table]:min-w-[860px]">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Nama</th>
+                                        <th>Nama pengguna</th>
+                                        <th>Peran</th>
+                                        <th>Status</th>
+                                        <th>Penjualan Hari Ini</th>
+                                        <th className="w-48">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {props.cashiers.map((cashier) => (
+                                        <tr key={cashier.id}>
+                                            <td className="!text-left"><strong className="text-foreground">{cashier.name}</strong></td>
+                                            <td>{cashier.username}</td>
+                                            <td>{cashier.role === 'admin' ? 'Admin' : 'Kasir'}</td>
+                                            <td><Badge className="rounded-full px-3 py-1" variant={cashier.status === 'active' ? 'green' : 'red'}>{cashier.status === 'active' ? 'Aktif' : 'Nonaktif'}</Badge></td>
+                                            <td className="font-bold text-foreground whitespace-nowrap">{rupiah(cashier.today_sales)}</td>
+                                            <td>
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {cashier.update_url && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(cashier.update_url, props.csrf, { _method: 'PUT', name: cashier.name, username: cashier.username, role: cashier.role, status: cashier.status === 'active' ? 'inactive' : 'active' })}>{cashier.status === 'active' ? 'Nonaktifkan' : 'Aktifkan'}</button>}
+                                                    {cashier.reset_password_url && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => { const password = window.prompt(`Password baru untuk ${cashier.name}`); if (password) postForm(cashier.reset_password_url, props.csrf, { _method: 'PUT', password }); }}>Reset</button>}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </DataTable>
+                    </Card>
+                </div>}
+
+                {tab === 'data' && <div className="grid gap-5 xl:grid-cols-2">
+                    <Card className="bg-background" title="Keamanan Akun">
+                        <FormStack as="form" method="POST" action={props.routes.passwordUpdate ?? ''} className="max-w-[650px]">
+                            <input type="hidden" name="_token" value={props.csrf} />
+                            <input type="hidden" name="_method" value="PUT" />
+                            <Field label="Kata sandi lama"><input name="current_password" type="password" required /></Field>
+                            <Field label="Kata sandi baru"><input name="password" type="password" required /></Field>
+                            <Field label="Konfirmasi kata sandi"><input name="password_confirmation" type="password" required /></Field>
+                            <Button variant="primary" type="submit">Ganti kata sandi</Button>
+                        </FormStack>
+                    </Card>
+                    <Card className="bg-background" title="Ringkasan Data">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">Barang aktif</span><strong className="mt-2 block text-2xl text-foreground">{props.activeProducts.length}</strong></div>
+                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">User</span><strong className="mt-2 block text-2xl text-foreground">{props.cashiers.length}</strong></div>
+                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">Transaksi periode</span><strong className="mt-2 block text-2xl text-foreground">{props.historyTransactions.length}</strong></div>
+                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">Pengeluaran periode</span><strong className="mt-2 block text-2xl text-foreground">{props.expenses.length}</strong></div>
+                        </div>
+                    </Card>
+                </div>}
+        </section>
+    );
+}
+
+function ReceiptSettingsPreview({ cashier, settings }: { cashier: string; settings: ReceiptSettings }) {
+    const headerLines = [
+        settings.receipt_address_line_1,
+        settings.receipt_address_line_2,
+        settings.receipt_phone,
+    ].filter(Boolean);
+    const footerLines = [
+        settings.receipt_footer_line_1,
+        settings.receipt_footer_line_2,
+        settings.receipt_footer_line_3,
+    ].filter(Boolean);
+
+    return (
+        <div className="rounded-md border border-dashed border-ld bg-card px-5 py-4 font-mono text-[12px] leading-5 text-foreground">
+            <div className="text-center">
+                <strong className="block text-sm">{settings.receipt_store_name || 'NAMA TOKO'}</strong>
+                {headerLines.map((line, index) => <span className="block text-muted-foreground" key={`${line}-${index}`}>{line}</span>)}
+            </div>
+            <div className="my-3 border-t border-dashed border-ld" />
+            <div className="grid gap-1">
+                <div className="flex justify-between gap-3"><span>No</span><strong>TRX-0001</strong></div>
+                <div className="flex justify-between gap-3"><span>Tanggal</span><span>11/10/2026 10:30</span></div>
+                {settings.receipt_show_cashier === '1' && <div className="flex justify-between gap-3"><span>Kasir</span><span className="truncate">{cashier}</span></div>}
+                {settings.receipt_show_customer === '1' && <div className="flex justify-between gap-3"><span>Pembeli</span><span>Member</span></div>}
+            </div>
+            <div className="my-3 border-t border-dashed border-ld" />
+            <div className="grid gap-1">
+                <span>DWater Cup 220ml</span>
+                <div className="flex justify-between gap-3"><span>1 x 20.000</span><strong>20.000</strong></div>
+            </div>
+            <div className="my-3 border-t border-dashed border-ld" />
+            <div className="flex justify-between gap-3 font-bold"><span>Total</span><span>20.000</span></div>
+            {settings.receipt_show_payment === '1' && <>
+                <div className="flex justify-between gap-3"><span>Status</span><span>LUNAS</span></div>
+                <div className="flex justify-between gap-3"><span>Metode</span><span>Tunai</span></div>
+            </>}
+            {footerLines.length > 0 && <>
+                <div className="my-3 border-t border-dashed border-ld" />
+                <div className="text-center text-muted-foreground">
+                    {footerLines.map((line, index) => <span className="block" key={`${line}-${index}`}>{line}</span>)}
+                </div>
+            </>}
+        </div>
+    );
+}
+
+function SettingsToggle({ checked, defaultChecked = true, description, name, onChange, title }: { checked?: boolean; defaultChecked?: boolean; description: string; name?: string; onChange?: (checked: boolean) => void; title: string }) {
+    const controlled = checked !== undefined;
+
+    return (
+        <label className="flex min-h-16 items-center justify-between gap-4 rounded-md border border-ld bg-card px-4 py-3">
+            <span className="grid gap-1"><strong className="text-sm text-foreground">{title}</strong><small className="text-xs text-muted-foreground">{description}</small></span>
+            <input className="size-5 accent-primary" name={name} value="1" type="checkbox" checked={controlled ? checked : undefined} defaultChecked={controlled ? undefined : defaultChecked} onChange={(event) => onChange?.(event.target.checked)} />
+        </label>
+    );
+}
+
+function Account({ props }: { props: AppProps }) {
+    return (
+        <section className="grid gap-6">
+            <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Akun</h1><p className="text-sm text-muted-foreground">Informasi profil dan penggantian password</p></div>
+            <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+                <Card>
+                    <div className="flex items-center gap-4">
+                        <span className="grid size-16 shrink-0 place-items-center rounded-xl bg-lightprimary text-2xl font-semibold text-primary">{props.user.name.slice(0, 1).toUpperCase()}</span>
+                        <div className="min-w-0"><h2 className="truncate text-xl font-semibold leading-7 text-foreground">{props.user.name}</h2><p className="truncate text-sm text-muted-foreground">{props.user.username} - {props.user.role}</p></div>
+                    </div>
+                    <div className="mt-5 grid gap-3">
+                        <div className="rounded-md border border-ld bg-background p-4"><span className="text-sm font-bold text-muted-foreground">Email</span><strong className="mt-1 block break-words text-foreground">{props.user.email}</strong></div>
+                        <div className="rounded-md border border-ld bg-background p-4"><span className="text-sm font-bold text-muted-foreground">Status</span><strong className="mt-1 block text-foreground">{props.user.status}</strong></div>
+                    </div>
+                </Card>
+                <Card title="Ganti kata sandi">
+                    <FormStack as="form" method="POST" action={props.routes.passwordUpdate ?? ''} className="max-w-[650px]">
+                        <input type="hidden" name="_token" value={props.csrf} />
+                        <input type="hidden" name="_method" value="PUT" />
+                        <Field label="Kata sandi lama"><input name="current_password" type="password" required /></Field>
+                        <Field label="Kata sandi baru"><input name="password" type="password" required /></Field>
+                        <Field label="Konfirmasi kata sandi"><input name="password_confirmation" type="password" required /></Field>
+                        <Button variant="primary" type="submit">Ganti kata sandi</Button>
+                    </FormStack>
+                </Card>
+            </div>
+        </section>
+    );
+}
+
+type ProductSortKey = 'barcode' | 'name' | 'category' | 'minimum';
+type StockInSortKey = 'barcode' | 'name' | 'stock';
+
+function StockInTable({ purchases }: { purchases: StockIn[] }) {
+    const [sortKey, setSortKey] = useState<StockInSortKey>('name');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const sortedPurchases = [...purchases].sort((first, second) => {
+        const direction = sortDirection === 'asc' ? 1 : -1;
+
+        if (sortKey === 'stock') {
+            return (first.qty - second.qty) * direction;
+        }
+
+        const firstValue = sortKey === 'barcode' ? first.barcode ?? first.product_code ?? '' : first.product;
+        const secondValue = sortKey === 'barcode' ? second.barcode ?? second.product_code ?? '' : second.product;
+
+        return firstValue.localeCompare(secondValue, 'id') * direction;
+    });
+    const toggleSort = (key: StockInSortKey) => {
+        if (sortKey === key) {
+            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+            return;
+        }
+
+        setSortKey(key);
+        setSortDirection('asc');
+    };
+    const sortIcon = (key: StockInSortKey) => {
+        const active = sortKey === key;
+        const upActive = active && sortDirection === 'asc';
+        const downActive = active && sortDirection === 'desc';
+
+        return (
+            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
+                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 0 8 5H0L4 0Z" />
+                </svg>
+                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 5 0 0h8L4 5Z" />
+                </svg>
+            </span>
+        );
+    };
+    const sortableHeader = (label: string, key: StockInSortKey) => (
+        <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort(key)}>
+            {label} {sortIcon(key)}
+        </button>
+    );
+
+    return (
+        <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+            <table>
+                <thead>
+                    <tr>
+                        <th className="w-16 !text-center">No</th>
+                        <th className="!text-center">{sortableHeader('Barcode', 'barcode')}</th>
+                        <th className="!text-center">{sortableHeader('Nama', 'name')}</th>
+                        <th className="w-28 !text-center">{sortableHeader('Stok', 'stock')}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sortedPurchases.length ? sortedPurchases.map((stockIn, index) => (
+                        <tr key={stockIn.id}>
+                            <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                            <td className="!text-center font-medium text-foreground">{stockIn.barcode || stockIn.product_code || '-'}</td>
+                            <td className="!text-left">
+                                <strong className="text-foreground">{stockIn.product}</strong>
+                            </td>
+                            <td className="!text-center font-semibold text-foreground">{stockIn.qty}</td>
+                        </tr>
+                    )) : <tr><td className="text-center text-muted-foreground" colSpan={4}>Belum ada stok yang cocok.</td></tr>}
+                </tbody>
+            </table>
+        </DataTable>
+    );
+}
+
+function ProductTable({ products, showActions = false, csrf, onEdit }: { products: Product[]; showActions?: boolean; csrf?: string; onEdit?: (product: Product) => void }) {
+    const [sortKey, setSortKey] = useState<ProductSortKey>('name');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const sortedProducts = [...products].sort((first, second) => {
+        const direction = sortDirection === 'asc' ? 1 : -1;
+
+        if (sortKey === 'minimum') {
+            return (first.stok_minimal - second.stok_minimal) * direction;
+        }
+
+        const firstValue = sortKey === 'barcode' ? first.kode_barang : sortKey === 'category' ? first.kategori : first.nama_barang;
+        const secondValue = sortKey === 'barcode' ? second.kode_barang : sortKey === 'category' ? second.kategori : second.nama_barang;
+
+        return firstValue.localeCompare(secondValue, 'id') * direction;
+    });
+    const toggleSort = (key: ProductSortKey) => {
+        if (sortKey === key) {
+            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+            return;
+        }
+
+        setSortKey(key);
+        setSortDirection('asc');
+    };
+    const sortIcon = (key: ProductSortKey) => {
+        const active = sortKey === key;
+        const upActive = active && sortDirection === 'asc';
+        const downActive = active && sortDirection === 'desc';
+
+        return (
+            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
+                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 0 8 5H0L4 0Z" />
+                </svg>
+                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 5 0 0h8L4 5Z" />
+                </svg>
+            </span>
+        );
+    };
+    const sortableHeader = (label: string, key: ProductSortKey) => (
+        <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort(key)}>
+            {label} {sortIcon(key)}
+        </button>
+    );
+
+    return (
+        <DataTable className="[&_table]:min-w-[920px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+            <table>
+                <thead>
+                    <tr>
+                        <th className="w-16 !text-center">No</th>
+                        <th className="!text-center">{sortableHeader('Barcode', 'barcode')}</th>
+                        <th className="!text-center">{sortableHeader('Nama', 'name')}</th>
+                        <th className="!text-center">{sortableHeader('Kategori', 'category')}</th>
+                        <th className="w-28 !text-center">Satuan</th>
+                        <th className="w-36 !text-center">{sortableHeader('Stok minimal', 'minimum')}</th>
+                        <th className="w-28 !text-center">Status</th>
+                        {showActions && <th className="w-32 !text-center">Aksi</th>}
+                    </tr>
+                </thead>
+                <tbody>
+                    {sortedProducts.length ? sortedProducts.map((product, index) => {
+                        return (
+                            <tr key={product.id}>
+                                <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                                <td className="!text-center font-medium text-foreground">{product.kode_barang}</td>
+                                <td className="!text-left">
+                                    <strong className="text-foreground">{product.nama_barang}</strong>
+                                    {product.deskripsi && <div className="mt-1 text-xs text-muted-foreground">{product.deskripsi}</div>}
+                                </td>
+                                <td className="!text-center text-foreground">{product.kategori || '-'}</td>
+                                <td className="!text-center text-foreground">{product.satuan || '-'}</td>
+                                <td className="!text-center font-semibold text-foreground">{product.stok_minimal}</td>
+                                <td><Badge className="rounded-full px-3 py-1" variant={product.status === 'active' ? 'green' : 'red'}>{product.status === 'active' ? 'Aktif' : 'Nonaktif'}</Badge></td>
+                                {showActions && (
+                                    <td className="!text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                            <button className="grid size-6 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-3.5" type="button" title="Edit" aria-label={`Edit ${product.nama_barang}`} onClick={() => onEdit?.(product)}>
+                                                <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M12 20h9" />
+                                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
+                                                </svg>
+                                            </button>
+                                            {product.destroy_url && csrf && (
+                                                <button className="grid size-6 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-3.5" type="button" title="Hapus" aria-label={`Hapus ${product.nama_barang}`} onClick={() => {
+                                                    if (window.confirm(`Hapus ${product.nama_barang}?`)) {
+                                                        postForm(product.destroy_url, csrf, { _method: 'DELETE' });
+                                                    }
+                                                }}>
+                                                    <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                        <path d="M3 6h18" />
+                                                        <path d="M8 6V4h8v2" />
+                                                        <path d="M19 6l-1 14H6L5 6" />
+                                                        <path d="M10 11v5" />
+                                                        <path d="M14 11v5" />
+                                                    </svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+                                )}
+                            </tr>
+                        );
+                    }) : <tr><td className="text-center text-muted-foreground" colSpan={showActions ? 8 : 7}>Tidak ada produk yang cocok.</td></tr>}
+                </tbody>
+            </table>
+        </DataTable>
+    );
+}
+
+function ExpenseTable({ expenses, csrf, onEdit }: { expenses: Expense[]; csrf: string; onEdit: (expense: Expense) => void }) {
+    return (
+        <DataTable className="[&_table]:min-w-[980px]">
+            <table>
+                <thead>
+                    <tr>
+                        <th className="w-32">Tanggal</th>
+                        <th className="w-44">Kategori</th>
+                        <th>Deskripsi</th>
+                        <th className="w-40">Nominal</th>
+                        <th className="w-40">Pengguna</th>
+                        <th className="w-28">Bukti</th>
+                        <th className="w-28">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {expenses.length ? expenses.map((expense) => (
+                        <tr key={expense.id}>
+                            <td>{expense.spent_at}</td>
+                            <td><Badge className="rounded-full px-3 py-1" variant="blue">{expense.category}</Badge></td>
+                            <td className="!text-left"><strong className="text-foreground">{expense.description}</strong></td>
+                            <td className="font-bold text-error whitespace-nowrap">{rupiah(expense.amount)}</td>
+                            <td>{expense.user}</td>
+                            <td>
+                                {expense.attachment_url ? <a className="mx-auto grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" href={expense.attachment_url} target="_blank" title="Bukti" aria-label={`Bukti ${expense.description}`}><NavIcon name="receipt" /></a> : <span className="text-sm text-muted-foreground">-</span>}
+                            </td>
+                            <td>
+                                <div className="flex items-center justify-center gap-1">
+                                    <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${expense.description}`} onClick={() => onEdit(expense)}><NavIcon name="edit" /></button>
+                                    {expense.destroy_url && <button className="grid size-8 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${expense.description}`} onClick={() => { if (window.confirm(`Hapus pengeluaran ${expense.description}?`)) postForm(expense.destroy_url, csrf, { _method: 'DELETE' }); }}><NavIcon name="trash" /></button>}
+                                </div>
+                            </td>
+                        </tr>
+                    )) : <tr><td className="text-center text-muted-foreground" colSpan={7}>Tidak ada pengeluaran yang cocok.</td></tr>}
+                </tbody>
+            </table>
+        </DataTable>
+    );
+}
+
+function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transactions: Transaction[]; showCashier: boolean; csrf: string; onEdit?: (transaction: Transaction) => void }) {
+    const paymentLabel = (transaction: Transaction) => {
+        if (transaction.payment_status === 'pending') {
+            return 'Belum Bayar';
+        }
+
+        return transaction.payment_type === 'transfer' ? 'Transfer' : 'Tunai';
+    };
+    const splitDateTime = (value: string) => {
+        const parts = value.trim().split(/\s+/);
+
+        return {
+            date: parts[0] ?? value,
+            time: parts.length > 1 ? parts.slice(1).join(' ') : '',
+        };
+    };
+    const deleteTransaction = (transaction: Transaction) => {
+        postForm(transaction.destroy_url, csrf, { _method: 'DELETE' });
+    };
+
+    return (
+        <DataTable className="rounded-md border border-ld [&_table]:min-w-[900px] [&_td]:py-4 [&_tbody_tr]:cursor-default [&_tbody_tr]:hover:bg-lightprimary/60 [&_th]:!text-center [&_th]:text-sm [&_th]:font-semibold [&_th]:text-muted-foreground">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tanggal</th>
+                        {showCashier && <th>Kasir</th>}
+                        <th>Pembeli</th>
+                        <th>Metode</th>
+                        <th>Status</th>
+                        <th className="!text-right">Total</th>
+                        <th className="w-20 text-center">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {transactions.length ? transactions.map((transaction) => {
+                        const isVoid = transaction.status === 'void';
+                        const badgeVariant = isVoid ? 'red' : transaction.payment_status === 'paid' ? 'green' : 'amber';
+                        const createdAt = splitDateTime(transaction.created_at);
+                        const timeLabel = createdAt.time && !createdAt.time.toLowerCase().includes('wib') ? `${createdAt.time} WIB` : createdAt.time;
+
+                        return (
+                            <tr className="group/row" key={transaction.id}>
+                                <td>
+                                    <div className="grid gap-1 text-center">
+                                        <span className="text-sm font-semibold text-foreground">{createdAt.date}</span>
+                                        {timeLabel && <span className="text-xs font-medium text-muted-foreground">{timeLabel}</span>}
+                                        {isVoid && <span className="text-xs font-medium text-error">Batal: {transaction.void_reason || '-'}</span>}
+                                    </div>
+                                </td>
+                                {showCashier && <td className="text-sm font-semibold text-foreground">{transaction.cashier}</td>}
+                                <td className="text-sm font-medium text-muted-foreground">{transaction.customer_name || '-'}</td>
+                                <td>
+                                    <div className="grid gap-1">
+                                        <span className="text-sm font-semibold text-foreground">{paymentLabel(transaction)}</span>
+                                        {transaction.payment_type === 'transfer' && (
+                                            <span className="text-xs font-medium text-muted-foreground">{transaction.payment_verified_at ? 'Terverifikasi' : 'Belum verifikasi'}</span>
+                                        )}
+                                    </div>
+                                </td>
+                                <td><Badge className="rounded-full px-3 py-1" variant={badgeVariant}>{isVoid ? 'Batal' : transaction.payment_status === 'paid' ? 'Lunas' : 'Belum Bayar'}</Badge></td>
+                                <td className="!text-right font-bold text-foreground whitespace-nowrap">{rupiah(transaction.total)}</td>
+                                <td>
+                                    <div className="flex items-center justify-center gap-1">
+                                        {transaction.update_url && onEdit && !isVoid && <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${transaction.kode_transaksi}`} onClick={() => onEdit(transaction)}><NavIcon name="edit" /></button>}
+                                        <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Cetak ulang" aria-label={`Cetak ulang ${transaction.kode_transaksi}`} onClick={() => postForm(transaction.thermal_receipt_url, csrf)}><NavIcon name="print" /></button>
+                                        {!isVoid && transaction.payment_status === 'pending' && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.settle_url, csrf, { _method: 'PUT', payment_type: 'cash', uang_diterima: transaction.total })}>Lunasi</button>}
+                                        {showCashier && !isVoid && transaction.payment_type === 'transfer' && transaction.payment_status === 'paid' && !transaction.payment_verified_at && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.verify_transfer_url, csrf, { _method: 'PUT' })}>Verifikasi</button>}
+                                        {showCashier && !isVoid && <button className="grid size-8 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${transaction.kode_transaksi}`} onClick={() => deleteTransaction(transaction)}><NavIcon name="trash" /></button>}
+                                    </div>
+                                </td>
+                            </tr>
+                        );
+                    }) : <tr><td className="text-center text-muted-foreground" colSpan={showCashier ? 7 : 6}>Belum ada transaksi.</td></tr>}
+                </tbody>
+            </table>
+        </DataTable>
+    );
+}
+
+function PurchaseTable({ purchases, csrf, onEdit }: { purchases: StockIn[]; csrf: string; onEdit: (stockIn: StockIn) => void }) {
+    const sortedPurchases = [...purchases].sort((first, second) => first.product.localeCompare(second.product, 'id'));
+
+    return (
+        <DataTable className="[&_table]:min-w-[820px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+            <table>
+                <thead>
+                    <tr>
+                        <th className="w-16 !text-center">No</th>
+                        <th className="w-36 !text-center">Tanggal</th>
+                        <th className="!text-center">Suplier</th>
+                        <th className="!text-center">Produk</th>
+                        <th className="w-36 !text-center">Jumlah Produk</th>
+                        <th className="w-28 !text-center">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sortedPurchases.length ? sortedPurchases.map((stock, index) => (
+                        <tr key={stock.id}>
+                            <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                            <td className="!text-center text-foreground">{stock.tanggal}</td>
+                            <td className="!text-center text-foreground">{stock.supplier || '-'}</td>
+                            <td className="!text-left">
+                                <strong className="text-foreground">{stock.product}</strong>
+                                {stock.product_code && <div className="mt-1 text-xs text-muted-foreground">{stock.product_code}</div>}
+                            </td>
+                            <td className="!text-center font-semibold text-foreground">{stock.qty}</td>
+                            <td className="!text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                    {stock.update_url && (
+                                        <button className="grid size-6 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-3.5" type="button" title="Edit" aria-label={`Edit pembelian ${stock.product}`} onClick={() => onEdit(stock)}>
+                                            <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M12 20h9" />
+                                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                    {stock.destroy_url && (
+                                        <button className="grid size-6 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-3.5" type="button" title="Hapus" aria-label={`Hapus pembelian ${stock.product}`} onClick={() => {
+                                            if (window.confirm(`Hapus pembelian ${stock.product}?`)) {
+                                                postForm(stock.destroy_url, csrf, { _method: 'DELETE' });
+                                            }
+                                        }}>
+                                            <svg fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M3 6h18" />
+                                                <path d="M8 6V4h8v2" />
+                                                <path d="M19 6l-1 14H6L5 6" />
+                                                <path d="M10 11v5" />
+                                                <path d="M14 11v5" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </div>
+                            </td>
+                        </tr>
+                    )) : <tr><td className="text-center text-muted-foreground" colSpan={6}>Belum ada pembelian.</td></tr>}
+                </tbody>
+            </table>
+        </DataTable>
+    );
+}
+
+const root = document.getElementById('dalwa-react-root');
+if (root && window.__DALWA_APP__) {
+    createRoot(root).render(<App props={window.__DALWA_APP__} />);
+}
+
