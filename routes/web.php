@@ -40,6 +40,9 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/transactions/{transaction}/receipt', [TransactionController::class, 'receipt'])
         ->name('transactions.receipt');
 
+    Route::get('/transactions/{transaction}/thermal-payload', [TransactionController::class, 'thermalPayload'])
+        ->name('transactions.thermal-payload');
+
     Route::post('/transactions/{transaction}/thermal-receipt', [TransactionController::class, 'printThermal'])
         ->name('transactions.thermal-receipt');
 

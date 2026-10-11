@@ -22,10 +22,6 @@
         <div class="actions">
             <a class="btn" href="{{ route('dashboard', ['page' => 'history']) }}">Kembali</a>
             <button class="btn primary" onclick="window.print()">Cetak Nota</button>
-            <form method="POST" action="{{ route('transactions.thermal-receipt', $transaction) }}">
-                @csrf
-                <button class="btn" type="submit">Cetak Ulang Thermal</button>
-            </form>
         </div>
         @if(session('success'))
             <div class="notice ok">{{ session('success') }}</div>

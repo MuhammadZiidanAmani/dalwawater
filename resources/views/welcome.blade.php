@@ -92,6 +92,7 @@
             'kembalian' => (int) $transaction->kembalian,
             'receipt_url' => route('transactions.receipt', $transaction),
             'thermal_receipt_url' => route('transactions.thermal-receipt', $transaction),
+            'thermal_payload_url' => route('transactions.thermal-payload', $transaction),
             'update_url' => (auth()->user()->isAdmin() || auth()->id() === $transaction->user_id) ? route('transactions.update', $transaction) : null,
             'settle_url' => route('transactions.settle', $transaction),
             'destroy_url' => route('transactions.destroy', $transaction),

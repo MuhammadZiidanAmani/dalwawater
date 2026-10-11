@@ -47,6 +47,7 @@ type Transaction = {
     kembalian: number;
     receipt_url: string;
     thermal_receipt_url: string;
+    thermal_payload_url: string;
     update_url: string | null;
     settle_url: string;
     destroy_url: string;
@@ -172,6 +173,25 @@ type ReceiptSettings = {
     receipt_show_cashier: string;
     receipt_show_customer: string;
     receipt_show_payment: string;
+};
+
+type ReceiptPrintPayload = {
+    settings: ReceiptSettings;
+    transaction: {
+        code: string;
+        created_at: string;
+        cashier: string;
+        customer_name: string | null;
+        payment_status: 'paid' | 'pending';
+        payment_type: string | null;
+        status: 'completed' | 'void';
+        subtotal: number;
+        discount_total: number;
+        total: number;
+        uang_diterima: number;
+        kembalian: number;
+    };
+    items: Array<{ name: string; qty: number; price: number; subtotal: number }>;
 };
 
 type AppProps = {
@@ -489,6 +509,46 @@ function postForm(action: string | null, csrf: string, fields: Record<string, st
 
     document.body.appendChild(form);
     form.submit();
+}
+
+const LOCAL_PRINT_AGENT_URL = 'http://127.0.0.1:9123/print';
+
+async function sendToLocalPrintAgent(payload: ReceiptPrintPayload) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3000);
+
+    try {
+        const response = await fetch(LOCAL_PRINT_AGENT_URL, {
+            body: JSON.stringify(payload),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            throw new Error('Local print agent menolak cetak.');
+        }
+    } finally {
+        window.clearTimeout(timeout);
+    }
+}
+
+async function reprintThermal(transaction: Transaction) {
+    try {
+        const payloadResponse = await fetch(transaction.thermal_payload_url, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+        });
+
+        if (!payloadResponse.ok) {
+            throw new Error('Payload struk tidak bisa diambil.');
+        }
+
+        await sendToLocalPrintAgent(await payloadResponse.json());
+        window.alert('Struk berhasil dikirim ke printer thermal.');
+    } catch (error) {
+        window.alert('Struk belum tercetak. Pastikan local print agent aktif dan printer X58MP II siap.');
+    }
 }
 
 function App({ props }: { props: AppProps }) {
@@ -996,7 +1056,17 @@ function Transactions({ props }: { props: AppProps }) {
             return;
         }
 
-        window.location.href = props.routes.dashboard ?? '/';
+        const payload = await response.json().catch(() => null);
+
+        if (payload?.receipt_payload) {
+            try {
+                await sendToLocalPrintAgent(payload.receipt_payload);
+            } catch (error) {
+                window.alert('Transaksi tersimpan, tetapi struk belum tercetak. Pastikan local print agent aktif di komputer kasir.');
+            }
+        }
+
+        window.location.href = payload?.redirect_url || props.routes.dashboard || '/';
     };
 
     return (
@@ -2965,7 +3035,7 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
                                 <td>
                                     <div className="flex items-center justify-center gap-1">
                                         {transaction.update_url && onEdit && !isVoid && <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${transaction.kode_transaksi}`} onClick={() => onEdit(transaction)}><NavIcon name="edit" /></button>}
-                                        <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Cetak ulang" aria-label={`Cetak ulang ${transaction.kode_transaksi}`} onClick={() => postForm(transaction.thermal_receipt_url, csrf)}><NavIcon name="print" /></button>
+                                        <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Cetak ulang" aria-label={`Cetak ulang ${transaction.kode_transaksi}`} onClick={() => void reprintThermal(transaction)}><NavIcon name="print" /></button>
                                         {!isVoid && transaction.payment_status === 'pending' && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.settle_url, csrf, { _method: 'PUT', payment_type: 'cash', uang_diterima: transaction.total })}>Lunasi</button>}
                                         {showCashier && !isVoid && transaction.payment_type === 'transfer' && transaction.payment_status === 'paid' && !transaction.payment_verified_at && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.verify_transfer_url, csrf, { _method: 'PUT' })}>Verifikasi</button>}
                                         {showCashier && !isVoid && <button className="grid size-8 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${transaction.kode_transaksi}`} onClick={() => deleteTransaction(transaction)}><NavIcon name="trash" /></button>}

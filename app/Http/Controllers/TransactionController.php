@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\AppSetting;
 use App\Models\CashierShift;
 use App\Models\PaymentVerification;
 use App\Models\Product;
@@ -11,6 +12,7 @@ use App\Services\ThermalReceiptPrinter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -22,7 +24,7 @@ use Throwable;
 
 class TransactionController extends Controller
 {
-    public function store(Request $request, ThermalReceiptPrinter $thermalPrinter): RedirectResponse
+    public function store(Request $request, ThermalReceiptPrinter $thermalPrinter): RedirectResponse|JsonResponse
     {
         $data = $request->validate([
             'items' => ['required', 'array', 'min:1'],
@@ -148,6 +150,14 @@ class TransactionController extends Controller
             return $transaction;
         });
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Transaksi berhasil disimpan.',
+                'redirect_url' => route('dashboard', ['page' => 'transactions']),
+                'receipt_payload' => $this->thermalReceiptPayload($transaction),
+            ]);
+        }
+
         $redirect = redirect()
             ->route('dashboard', ['page' => 'transactions'])
             ->with('success', 'Transaksi berhasil disimpan.');
@@ -177,6 +187,13 @@ class TransactionController extends Controller
         return view('transactions.receipt', [
             'transaction' => $transaction->load(['user', 'details.product']),
         ]);
+    }
+
+    public function thermalPayload(Transaction $transaction): JsonResponse
+    {
+        $this->authorizeReceipt($transaction);
+
+        return response()->json($this->thermalReceiptPayload($transaction));
     }
 
     public function update(Request $request, Transaction $transaction): RedirectResponse
@@ -533,6 +550,36 @@ class TransactionController extends Controller
         if (! $user->isAdmin() && $transaction->user_id !== $user->id) {
             abort(403);
         }
+    }
+
+    private function thermalReceiptPayload(Transaction $transaction): array
+    {
+        $transaction->loadMissing(['user', 'details.product']);
+        $subtotal = (int) $transaction->details->sum(fn ($detail): int => (int) $detail->harga * (int) $detail->qty);
+
+        return [
+            'settings' => AppSetting::receiptSettings(),
+            'transaction' => [
+                'code' => $transaction->kode_transaksi,
+                'created_at' => $transaction->created_at->format('d/m/Y H:i'),
+                'cashier' => $transaction->user?->name ?? '-',
+                'customer_name' => $transaction->customer_name,
+                'payment_status' => $transaction->payment_status,
+                'payment_type' => $transaction->payment_type,
+                'status' => $transaction->status,
+                'subtotal' => $subtotal,
+                'discount_total' => (int) $transaction->discount_total,
+                'total' => (int) $transaction->total,
+                'uang_diterima' => (int) $transaction->uang_diterima,
+                'kembalian' => (int) $transaction->kembalian,
+            ],
+            'items' => $transaction->details->map(fn ($detail): array => [
+                'name' => $detail->product?->nama_barang ?? 'Produk dihapus',
+                'qty' => (int) $detail->qty,
+                'price' => (int) $detail->harga,
+                'subtotal' => (int) $detail->subtotal,
+            ])->values(),
+        ];
     }
 
     private function getFilteredTransactions(Request $request)
