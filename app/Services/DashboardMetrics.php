@@ -17,7 +17,7 @@ class DashboardMetrics
         return (int) DB::table('transaction_details')
             ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->whereIn('transaction_details.transaction_id', (clone $transactionsQuery)->select('transactions.id'))
-            ->sum(DB::raw('transaction_details.subtotal - (products.harga_modal * transaction_details.qty)'));
+            ->sum(DB::raw($this->grossProfitExpression()));
     }
 
     public function transactionCapital(Builder $transactionsQuery): int
@@ -54,7 +54,7 @@ class DashboardMetrics
             ->whereIn('transactions.id', (clone $baseTransactions)->select('transactions.id'))
             ->selectRaw('DATE(transactions.created_at) as date_key')
             ->selectRaw('COALESCE(SUM(products.harga_modal * transaction_details.qty), 0) as capital')
-            ->selectRaw('COALESCE(SUM(transaction_details.subtotal - (products.harga_modal * transaction_details.qty)), 0) as gross_profit')
+            ->selectRaw('COALESCE(SUM('.$this->grossProfitExpression().'), 0) as gross_profit')
             ->groupBy('date_key')
             ->get()
             ->keyBy('date_key');
@@ -88,5 +88,10 @@ class DashboardMetrics
                     'net_profit' => $grossProfit - $expense,
                 ];
             });
+    }
+
+    private function grossProfitExpression(): string
+    {
+        return 'CAST(transaction_details.subtotal AS SIGNED) - (CAST(products.harga_modal AS SIGNED) * CAST(transaction_details.qty AS SIGNED))';
     }
 }
