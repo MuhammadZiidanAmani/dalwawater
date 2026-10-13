@@ -2,8 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AuditLog;
+use App\Http\Requests\SettleTransactionRequest;
+use App\Http\Requests\StoreTransactionRequest;
+use App\Http\Requests\UpdateTransactionRequest;
+use App\Http\Requests\VerifyTransferRequest;
+use App\Jobs\PrintThermalReceipt;
 use App\Models\AppSetting;
+use App\Models\AuditLog;
 use App\Models\CashierShift;
 use App\Models\PaymentVerification;
 use App\Models\Product;
@@ -24,22 +29,9 @@ use Throwable;
 
 class TransactionController extends Controller
 {
-    public function store(Request $request, ThermalReceiptPrinter $thermalPrinter): RedirectResponse|JsonResponse
+    public function store(StoreTransactionRequest $request): RedirectResponse|JsonResponse
     {
-        $data = $request->validate([
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'exists:products,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
-            'items.*.discount_type' => ['nullable', 'in:amount,percent'],
-            'items.*.discount_value' => ['nullable', 'integer', 'min:0'],
-            'payment_type' => ['nullable', 'required_unless:payment_status,pending', 'in:cash,transfer'],
-            'discount_per_product' => ['nullable', 'integer', 'min:0'],
-            'uang_diterima' => ['nullable', 'integer', 'min:0'],
-            'bank_name' => ['nullable', 'string', 'max:100'],
-            'reference_number' => ['nullable', 'string', 'max:150'],
-            'payment_status' => ['required', 'in:paid,pending'],
-            'customer_name' => ['nullable', 'string', 'max:255'],
-        ]);
+        $data = $request->validated();
 
         $transaction = DB::transaction(function () use ($data) {
             $total = 0;
@@ -154,7 +146,7 @@ class TransactionController extends Controller
             return response()->json([
                 'message' => 'Transaksi berhasil disimpan.',
                 'redirect_url' => route('dashboard', ['page' => 'transactions']),
-                'receipt_payload' => $this->thermalReceiptPayload($transaction),
+                'receipt_url' => route('transactions.receipt', $transaction),
             ]);
         }
 
@@ -163,58 +155,57 @@ class TransactionController extends Controller
             ->with('success', 'Transaksi berhasil disimpan.');
 
         if (config('thermal.auto_print')) {
-            try {
-                $thermalPrinter->print($transaction);
-                $redirect->with('success', 'Transaksi berhasil disimpan dan struk thermal dicetak.');
-            } catch (Throwable $exception) {
-                Log::warning('Thermal receipt print failed.', [
-                    'transaction_id' => $transaction->id,
-                    'kode_transaksi' => $transaction->kode_transaksi,
-                    'error' => $exception->getMessage(),
-                ]);
-
-                $redirect->with('warning', 'Transaksi tersimpan, tetapi struk thermal gagal dicetak. Cek koneksi printer X58MP II.');
-            }
+            PrintThermalReceipt::dispatch($transaction->id)->afterResponse();
+            $redirect->with('success', 'Transaksi berhasil disimpan dan struk thermal dikirim ke antrean cetak.');
         }
 
         return $redirect;
     }
 
-    public function receipt(Transaction $transaction): View
+    public function receipt(Request $request, Transaction $transaction): View
     {
-        $this->authorizeReceipt($transaction);
+        $this->authorize('view', $transaction);
 
         return view('transactions.receipt', [
             'transaction' => $transaction->load(['user', 'details.product']),
+            ...$this->receiptViewData($request),
         ]);
+    }
+
+    public function receiptPdf(Request $request, Transaction $transaction)
+    {
+        $this->authorize('view', $transaction);
+
+        $layout = $this->receiptLayout($request);
+        $pdf = Pdf::loadView('transactions.receipt', [
+            'transaction' => $transaction->load(['user', 'details.product']),
+            ...$this->receiptViewData($request),
+            'pdfMode' => true,
+        ])->setPaper($layout['paper'], 'portrait');
+        $filename = 'nota-'.$transaction->kode_transaksi.'-'.$layout['size'].'.pdf';
+
+        if ($request->boolean('download')) {
+            return $pdf->download($filename);
+        }
+
+        return $pdf->stream($filename);
     }
 
     public function thermalPayload(Transaction $transaction): JsonResponse
     {
-        $this->authorizeReceipt($transaction);
+        $this->authorize('view', $transaction);
 
         return response()->json($this->thermalReceiptPayload($transaction));
     }
 
-    public function update(Request $request, Transaction $transaction): RedirectResponse
+    public function update(UpdateTransactionRequest $request, Transaction $transaction): RedirectResponse
     {
-        $this->authorizeTransactionUpdate($transaction);
-
-        $data = $request->validate([
-            'created_at' => ['required', 'date'],
-            'customer_name' => ['nullable', 'string', 'max:255'],
-            'payment_type' => ['required', 'in:cash,transfer'],
-            'uang_diterima' => ['nullable', 'integer', 'min:0'],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'exists:products,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
-            'items.*.discount_value' => ['nullable', 'integer', 'min:0'],
-        ]);
+        $data = $request->validated();
 
         DB::transaction(function () use ($data, $transaction): void {
             $lockedTransaction = Transaction::with('details.product')->lockForUpdate()->findOrFail($transaction->id);
 
-            $this->authorizeTransactionUpdate($lockedTransaction);
+            $this->authorize('update', $lockedTransaction);
 
             if ($lockedTransaction->isVoid()) {
                 throw ValidationException::withMessages([
@@ -309,7 +300,7 @@ class TransactionController extends Controller
 
     public function printThermal(Transaction $transaction, ThermalReceiptPrinter $thermalPrinter): RedirectResponse
     {
-        $this->authorizeReceipt($transaction);
+        $this->authorize('view', $transaction);
 
         try {
             $thermalPrinter->print($transaction, force: true);
@@ -328,9 +319,7 @@ class TransactionController extends Controller
 
     public function destroy(Transaction $transaction): RedirectResponse
     {
-        if (! auth()->user()->isAdmin()) {
-            abort(403);
-        }
+        $this->authorize('delete', $transaction);
 
         $data = request()->validate([
             'void_reason' => ['nullable', 'string', 'max:1000'],
@@ -368,16 +357,9 @@ class TransactionController extends Controller
         return redirect()->back()->with('success', 'Transaksi berhasil dihapus dan stok dikembalikan.');
     }
 
-    public function settle(Request $request, Transaction $transaction): RedirectResponse
+    public function settle(SettleTransactionRequest $request, Transaction $transaction): RedirectResponse
     {
-        $this->authorizeReceipt($transaction);
-
-        $data = $request->validate([
-            'payment_type' => ['required', 'in:cash,transfer'],
-            'uang_diterima' => ['nullable', 'integer', 'min:0'],
-            'bank_name' => ['nullable', 'string', 'max:100'],
-            'reference_number' => ['nullable', 'string', 'max:150'],
-        ]);
+        $data = $request->validated();
 
         DB::transaction(function () use ($data, $transaction): void {
             $lockedTransaction = Transaction::lockForUpdate()->findOrFail($transaction->id);
@@ -422,13 +404,9 @@ class TransactionController extends Controller
             ->with('success', 'Pembayaran berhasil dilunasi.');
     }
 
-    public function verifyTransfer(Request $request, Transaction $transaction): RedirectResponse
+    public function verifyTransfer(VerifyTransferRequest $request, Transaction $transaction): RedirectResponse
     {
-        abort_unless($request->user()->isAdmin(), 403);
-
-        $data = $request->validate([
-            'notes' => ['nullable', 'string', 'max:1000'],
-        ]);
+        $data = $request->validated();
 
         DB::transaction(function () use ($transaction, $data, $request): void {
             $lockedTransaction = Transaction::lockForUpdate()->findOrFail($transaction->id);
@@ -520,36 +498,10 @@ class TransactionController extends Controller
             return null;
         }
 
-        $shift = CashierShift::where('user_id', $user->id)
+        return CashierShift::where('user_id', $user->id)
             ->open()
             ->latest('opened_at')
             ->first();
-
-        if (! $shift) {
-            throw ValidationException::withMessages([
-                'shift' => 'Buka shift kasir terlebih dahulu sebelum membuat transaksi.',
-            ]);
-        }
-
-        return $shift;
-    }
-
-    private function authorizeReceipt(Transaction $transaction): void
-    {
-        $user = auth()->user();
-
-        if (! $user->isAdmin() && $transaction->user_id !== $user->id) {
-            abort(403);
-        }
-    }
-
-    private function authorizeTransactionUpdate(Transaction $transaction): void
-    {
-        $user = auth()->user();
-
-        if (! $user->isAdmin() && $transaction->user_id !== $user->id) {
-            abort(403);
-        }
     }
 
     private function thermalReceiptPayload(Transaction $transaction): array
@@ -579,6 +531,72 @@ class TransactionController extends Controller
                 'price' => (int) $detail->harga,
                 'subtotal' => (int) $detail->subtotal,
             ])->values(),
+        ];
+    }
+
+    private function receiptViewData(Request $request): array
+    {
+        $layout = $this->receiptLayout($request);
+
+        return [
+            'pdfMode' => false,
+            'receiptLayout' => $layout,
+            'receiptSizes' => $this->receiptSizes(),
+        ];
+    }
+
+    private function receiptLayout(Request $request): array
+    {
+        $defaultSize = AppSetting::receiptSettings()['receipt_paper_width'] === '42' ? '80mm' : '58mm';
+        $size = strtolower((string) $request->query('size', $defaultSize));
+        $sizes = $this->receiptSizes();
+
+        return $sizes[$size] ?? $sizes[$defaultSize];
+    }
+
+    private function receiptSizes(): array
+    {
+        return [
+            '58mm' => [
+                'size' => '58mm',
+                'label' => '58mm Thermal',
+                'paper' => [0, 0, 164.41, 841.89],
+                'page_css' => '58mm 297mm',
+                'receipt_width' => '58mm',
+                'receipt_padding' => '10px',
+                'font_size' => '10.5px',
+                'line_height' => '15px',
+            ],
+            '80mm' => [
+                'size' => '80mm',
+                'label' => '80mm Thermal',
+                'paper' => [0, 0, 226.77, 841.89],
+                'page_css' => '80mm 297mm',
+                'receipt_width' => '80mm',
+                'receipt_padding' => '14px',
+                'font_size' => '12px',
+                'line_height' => '18px',
+            ],
+            'a5' => [
+                'size' => 'a5',
+                'label' => 'A5',
+                'paper' => 'a5',
+                'page_css' => 'A5',
+                'receipt_width' => '132mm',
+                'receipt_padding' => '18px',
+                'font_size' => '12px',
+                'line_height' => '18px',
+            ],
+            'a4' => [
+                'size' => 'a4',
+                'label' => 'A4',
+                'paper' => 'a4',
+                'page_css' => 'A4',
+                'receipt_width' => '184mm',
+                'receipt_padding' => '22px',
+                'font_size' => '12px',
+                'line_height' => '18px',
+            ],
         ];
     }
 

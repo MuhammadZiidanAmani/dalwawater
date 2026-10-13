@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ExpenseRequest;
 use App\Models\AuditLog;
 use App\Models\Expense;
 use Illuminate\Http\RedirectResponse;
@@ -12,9 +13,9 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ExpenseController extends Controller
 {
-    public function store(Request $request): RedirectResponse
+    public function store(ExpenseRequest $request): RedirectResponse
     {
-        $data = $this->validated($request);
+        $data = $request->expenseData();
 
         if ($request->hasFile('attachment')) {
             $data['attachment'] = $request->file('attachment')->store('expenses');
@@ -26,16 +27,16 @@ class ExpenseController extends Controller
         ]);
 
         AuditLog::record('expense.created', $expense, [
-            'category' => $expense->category,
+            'uraian' => $expense->uraian,
             'amount' => $expense->amount,
         ]);
 
         return redirect()->route('dashboard', ['page' => 'operations'])->with('success', 'Pengeluaran berhasil ditambahkan.');
     }
 
-    public function update(Request $request, Expense $expense): RedirectResponse
+    public function update(ExpenseRequest $request, Expense $expense): RedirectResponse
     {
-        $data = $this->validated($request);
+        $data = $request->expenseData();
 
         if ($request->hasFile('attachment')) {
             $this->deleteAttachment($expense);
@@ -47,7 +48,7 @@ class ExpenseController extends Controller
         $expense->update($data);
 
         AuditLog::record('expense.updated', $expense, [
-            'category' => $expense->category,
+            'uraian' => $expense->uraian,
             'amount' => $expense->amount,
         ]);
 
@@ -59,8 +60,7 @@ class ExpenseController extends Controller
         $this->deleteAttachment($expense);
 
         AuditLog::record('expense.deleted', $expense, [
-            'category' => $expense->category,
-            'description' => $expense->description,
+            'uraian' => $expense->uraian ?? $expense->description,
             'amount' => $expense->amount,
         ]);
 
@@ -78,7 +78,8 @@ class ExpenseController extends Controller
         $startDate = $filters['start_date'] ?? now()->toDateString();
         $endDate = $filters['end_date'] ?? now()->toDateString();
         $expenses = Expense::with('user')
-            ->whereBetween('spent_at', [$startDate, $endDate])
+            ->whereDate('spent_at', '>=', $startDate)
+            ->whereDate('spent_at', '<=', $endDate)
             ->orderByDesc('spent_at')
             ->orderByDesc('id')
             ->get();
@@ -105,17 +106,6 @@ class ExpenseController extends Controller
         AuditLog::record('expense.attachment_viewed', $expense);
 
         return response()->file($disk->path($expense->attachment));
-    }
-
-    private function validated(Request $request): array
-    {
-        return $request->validate([
-            'spent_at' => ['required', 'date'],
-            'category' => ['required', 'string', 'max:100'],
-            'description' => ['required', 'string', 'max:255'],
-            'amount' => ['required', 'integer', 'min:0'],
-            'attachment' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
-        ]);
     }
 
     private function deleteAttachment(Expense $expense): void

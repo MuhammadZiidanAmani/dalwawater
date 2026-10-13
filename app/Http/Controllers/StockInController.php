@@ -2,21 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StockInRequest;
 use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\StockIn;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class StockInController extends Controller
 {
-    public function store(Request $request): RedirectResponse
+    public function store(StockInRequest $request): RedirectResponse
     {
-        $data = $this->stockData($request);
+        $data = $request->stockData();
 
         if ($request->hasFile('nota_pembelian')) {
             $data['nota_pembelian'] = $request->file('nota_pembelian')->store('stock_ins');
@@ -69,9 +68,9 @@ class StockInController extends Controller
         return redirect()->route('dashboard', ['page' => 'stock'])->with('success', 'Barang masuk tersimpan dan stok bertambah.');
     }
 
-    public function update(Request $request, StockIn $stockIn): RedirectResponse
+    public function update(StockInRequest $request, StockIn $stockIn): RedirectResponse
     {
-        $data = $this->stockData($request, $stockIn);
+        $data = $request->stockData();
 
         if ($request->hasFile('nota_pembelian')) {
             if ($stockIn->nota_pembelian) {
@@ -184,44 +183,5 @@ class StockInController extends Controller
         ]);
 
         return response()->file($publicDisk->path($path));
-    }
-
-    private function stockData(Request $request, ?StockIn $stockIn = null): array
-    {
-        $data = $request->validate([
-            'invoice_number' => ['nullable', 'string', 'max:100'],
-            'tanggal' => ['required', 'date'],
-            'product_id' => ['required', 'exists:products,id'],
-            'qty' => ['required', 'integer', 'min:1'],
-            'supplier' => ['nullable', 'string', 'max:150'],
-            'keterangan' => ['nullable', 'string', 'max:1000'],
-            'harga_modal' => ['nullable', 'integer', 'min:0'],
-            'harga_beli' => ['nullable', 'integer', 'min:0'],
-            'harga_jual' => ['nullable', 'integer', 'min:0'],
-            'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'discount_amount' => ['nullable', 'integer', 'min:0'],
-            'subtotal' => ['nullable', 'integer', 'min:0'],
-            'kode_barang' => [
-                'nullable',
-                'string',
-                'max:50',
-                Rule::unique('products', 'kode_barang')->ignore($request->input('product_id')),
-            ],
-            'barcode' => ['nullable', 'string', 'max:50'],
-            'stock_unlimited' => ['nullable', Rule::in(['yes', 'no'])],
-            'expired_at' => ['nullable', 'date'],
-            'nota_pembelian' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
-            'surat_jalan' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
-        ]);
-
-        $data['harga_beli'] = (int) ($data['harga_beli'] ?? $data['harga_modal'] ?? 0);
-        $data['harga_modal'] = (int) ($data['harga_modal'] ?? $data['harga_beli']);
-        $data['harga_jual'] = (int) ($data['harga_jual'] ?? 0);
-        $data['discount_percent'] = (float) ($data['discount_percent'] ?? 0);
-        $data['discount_amount'] = (int) ($data['discount_amount'] ?? 0);
-        $data['subtotal'] = (int) ($data['subtotal'] ?? max(0, ($data['harga_beli'] * $data['qty']) - $data['discount_amount']));
-        $data['barcode'] = $data['barcode'] ?? $data['kode_barang'] ?? null;
-
-        return $data;
     }
 }

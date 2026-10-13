@@ -2,24 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StockOpnameRequest;
 use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\StockAdjustment;
 use App\Models\StockOpname;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class StockOpnameController extends Controller
 {
-    public function store(Request $request): RedirectResponse
+    public function store(StockOpnameRequest $request): RedirectResponse
     {
-        $data = $request->validate([
-            'product_id' => ['required', 'exists:products,id'],
-            'actual_stock' => ['required', 'integer', 'min:0'],
-            'reason' => ['required', 'string', 'max:1000'],
-            'opname_date' => ['nullable', 'date'],
-        ]);
+        $data = $request->validated();
 
         DB::transaction(function () use ($data, $request): void {
             $product = Product::lockForUpdate()->findOrFail($data['product_id']);
@@ -54,6 +49,6 @@ class StockOpnameController extends Controller
             ]);
         });
 
-        return redirect()->route('dashboard', ['page' => 'operations'])->with('success', 'Stock opname tersimpan dan stok disesuaikan.');
+        return redirect()->route('dashboard', ['page' => 'stock-opname'])->with('success', 'Stok opname tersimpan dan stok disesuaikan.');
     }
 }

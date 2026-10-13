@@ -34,10 +34,12 @@
             <tr>
                 <th>Nomor</th>
                 <th>Tanggal</th>
-                <th>Kategori</th>
-                <th>Deskripsi</th>
-                <th>Pengguna</th>
-                <th class="text-right">Nominal</th>
+                <th>Uraian</th>
+                <th class="text-right">Vol</th>
+                <th>Satuan</th>
+                <th class="text-right">Harga</th>
+                <th class="text-right">Jumlah</th>
+                <th>Keterangan</th>
             </tr>
         </thead>
         <tbody>
@@ -45,21 +47,24 @@
                 <tr>
                     <td>{{ $loop->iteration }}</td>
                     <td>{{ $expense->spent_at->format('d/m/Y') }}</td>
-                    <td>{{ $expense->category }}</td>
-                    <td>{{ $expense->description }}</td>
-                    <td>{{ $expense->user?->name ?? 'Tidak diketahui' }}</td>
+                    <td>{{ $expense->uraian ?? $expense->description }}</td>
+                    <td class="text-right">{{ number_format((float) ($expense->volume ?? 1), 2, ',', '.') }}</td>
+                    <td>{{ $expense->unit ?? 'Unit' }}</td>
+                    <td class="text-right">Rp {{ number_format((int) ($expense->price ?? $expense->amount), 0, ',', '.') }}</td>
                     <td class="text-right">Rp {{ number_format($expense->amount, 0, ',', '.') }}</td>
+                    <td>{{ $expense->notes ?? '-' }}</td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="6" style="text-align: center;">Belum ada pengeluaran pada periode ini.</td>
+                    <td colspan="8" style="text-align: center;">Belum ada pengeluaran pada periode ini.</td>
                 </tr>
             @endforelse
         </tbody>
         <tfoot>
             <tr>
-                <th colspan="5" class="text-right">Total Keseluruhan</th>
+                <th colspan="6" class="text-right">Total Keseluruhan</th>
                 <th class="text-right">Rp {{ number_format($total, 0, ',', '.') }}</th>
+                <th></th>
             </tr>
         </tfoot>
     </table>

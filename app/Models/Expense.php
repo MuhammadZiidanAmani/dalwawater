@@ -11,8 +11,13 @@ class Expense extends Model
         'user_id',
         'spent_at',
         'category',
+        'uraian',
         'description',
+        'volume',
+        'unit',
+        'price',
         'amount',
+        'notes',
         'attachment',
     ];
 
@@ -20,6 +25,8 @@ class Expense extends Model
     {
         return [
             'spent_at' => 'date',
+            'volume' => 'decimal:2',
+            'price' => 'integer',
             'amount' => 'integer',
         ];
     }

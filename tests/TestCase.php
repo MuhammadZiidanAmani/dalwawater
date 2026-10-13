@@ -11,5 +11,10 @@ abstract class TestCase extends BaseTestCase
         parent::setUp();
 
         $this->withoutVite();
+        config([
+            'thermal.auto_print' => false,
+            'thermal.connector' => 'file',
+            'thermal.printer_name' => storage_path('framework/testing/thermal-receipt.prn'),
+        ]);
     }
 }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sistem Manajemen Dalwa Water</title>
+    <title>Dalwa Water Tegal</title>
     <script>
         (() => {
             const stored = window.localStorage.getItem('dalwa-theme');
@@ -91,6 +91,7 @@
             'uang_diterima' => (int) $transaction->uang_diterima,
             'kembalian' => (int) $transaction->kembalian,
             'receipt_url' => route('transactions.receipt', $transaction),
+            'receipt_pdf_url' => route('transactions.receipt-pdf', $transaction),
             'thermal_receipt_url' => route('transactions.thermal-receipt', $transaction),
             'thermal_payload_url' => route('transactions.thermal-payload', $transaction),
             'update_url' => (auth()->user()->isAdmin() || auth()->id() === $transaction->user_id) ? route('transactions.update', $transaction) : null,
@@ -138,8 +139,13 @@
             'spent_at' => $formatDate($expense->spent_at),
             'spent_at_input' => optional($expense->spent_at)->format('Y-m-d'),
             'category' => $expense->category,
+            'uraian' => $expense->uraian ?? $expense->description,
             'description' => $expense->description,
+            'volume' => (float) ($expense->volume ?? 1),
+            'unit' => $expense->unit ?? 'Unit',
+            'price' => (int) ($expense->price ?? $expense->amount),
             'amount' => (int) $expense->amount,
+            'notes' => $expense->notes,
             'user' => $expense->user?->name ?? 'Tidak diketahui',
             'attachment_url' => $expense->attachment ? route('expenses.attachment', $expense) : null,
             'update_url' => auth()->user()->isAdmin() ? route('expenses.update', $expense) : null,
@@ -171,6 +177,7 @@
                 'system_stock' => (int) $adjustment->system_stock,
                 'actual_stock' => (int) $adjustment->actual_stock,
                 'difference' => (int) $adjustment->difference,
+                'reason' => $adjustment->reason,
             ])->values(),
         ];
         $mapAudit = fn ($log) => [
@@ -220,6 +227,7 @@
             'activeProducts' => ($activeProducts ?? collect())->map($mapProduct)->values(),
             'lowStockProducts' => ($lowStockProducts ?? collect())->map($mapProduct)->values(),
             'transactions' => ($transactions ?? collect())->map($mapTransaction)->values(),
+            'dashboardTransactions' => ($dashboardTransactions ?? collect())->map($mapTransaction)->values(),
             'historyTransactions' => ($historyTransactions ?? collect())->map($mapTransaction)->values(),
             'stockEntries' => ($stockEntries ?? collect())->map($mapStockIn)->values(),
             'purchaseHistory' => ($purchaseHistory ?? collect())->map($mapStockIn)->values(),
@@ -257,7 +265,25 @@
                 'label' => $point['label'],
                 'count' => (int) $point['count'],
             ])->values(),
+            'netProfitChart' => ($netProfitChart ?? collect())->map(fn ($point) => [
+                'label' => $point['label'],
+                'count' => (int) $point['count'],
+            ])->values(),
+            'financialChart' => ($financialChart ?? collect())->map(fn ($point) => [
+                'label' => $point['label'],
+                'income' => (int) $point['income'],
+                'expense' => (int) $point['expense'],
+                'capital' => (int) $point['capital'],
+                'gross_profit' => (int) $point['gross_profit'],
+                'net_profit' => (int) $point['net_profit'],
+            ])->values(),
+            'monthlyProductSales' => ($monthlyProductSales ?? collect())->map(fn ($product) => [
+                'name' => $product->nama_barang,
+                'qty' => (int) $product->qty,
+                'total' => (int) ($product->total ?? 0),
+            ])->values(),
             'filters' => [
+                'period_month' => $selectedPeriodMonth ?? null,
                 'start_date' => $startDate ?? null,
                 'end_date' => $endDate ?? null,
                 'user_id' => $selectedUserId ?? null,

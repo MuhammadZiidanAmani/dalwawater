@@ -384,20 +384,25 @@ class CashierReportAccessTest extends TestCase
             'status' => 'active',
         ]);
         $cashier = $this->cashier('cashier-one');
-        $filters = [
+        $requestFilters = [
+            'period_month' => '2026-06',
+            'user_id' => $cashier->id,
+            'payment_status' => 'paid',
+        ];
+        $exportFilters = [
             'start_date' => '2026-06-01',
-            'end_date' => '2026-06-21',
+            'end_date' => '2026-06-30',
             'user_id' => $cashier->id,
             'payment_status' => 'paid',
         ];
 
         $response = $this->actingAs($admin)
-            ->get('/?'.http_build_query(['page' => 'history', ...$filters]))
+            ->get('/?'.http_build_query(['page' => 'history', ...$requestFilters]))
             ->assertOk();
 
         $props = $this->reactProps($response);
-        $this->assertSame(route('transactions.export-excel', $filters), $props['routes']['transactionsExportExcel']);
-        $this->assertSame(route('transactions.export-pdf', $filters), $props['routes']['transactionsExportPdf']);
+        $this->assertSame(route('transactions.export-excel', $exportFilters), $props['routes']['transactionsExportExcel']);
+        $this->assertSame(route('transactions.export-pdf', $exportFilters), $props['routes']['transactionsExportPdf']);
     }
 
     public function test_purchase_history_uses_the_selected_date_range(): void
@@ -448,16 +453,21 @@ class CashierReportAccessTest extends TestCase
         $this->actingAs($admin)
             ->post(route('expenses.store'), [
                 'spent_at' => '2026-10-09',
-                'category' => 'Listrik',
-                'description' => 'Bayar listrik toko',
-                'amount' => 850000,
+                'uraian' => 'Bayar listrik toko',
+                'volume' => 1,
+                'unit' => 'Bulan',
+                'price' => 850000,
+                'notes' => 'Tagihan Oktober',
             ])
             ->assertRedirect(route('dashboard', ['page' => 'operations']));
 
         $this->assertDatabaseHas('expenses', [
             'user_id' => $admin->id,
-            'category' => 'Listrik',
+            'category' => 'Operasional',
             'description' => 'Bayar listrik toko',
+            'uraian' => 'Bayar listrik toko',
+            'unit' => 'Bulan',
+            'price' => 850000,
             'amount' => 850000,
         ]);
 
@@ -466,6 +476,10 @@ class CashierReportAccessTest extends TestCase
             'spent_at' => '2026-09-30',
             'category' => 'Sewa',
             'description' => 'Sewa lama',
+            'uraian' => 'Sewa lama',
+            'volume' => 1,
+            'unit' => 'Bulan',
+            'price' => 5000000,
             'amount' => 5000000,
         ]);
 
@@ -479,15 +493,15 @@ class CashierReportAccessTest extends TestCase
 
         $props = $this->reactProps($response);
         $this->assertCount(1, $props['expenses']);
-        $this->assertSame('Listrik', $props['expenses'][0]['category']);
+        $this->assertSame('Operasional', $props['expenses'][0]['category']);
         $this->assertSame(850000, $props['expenses'][0]['amount']);
         $this->assertSame(route('expenses.store'), $props['routes']['expensesStore']);
         $this->assertSame(route('expenses.print', [
             'start_date' => '2026-10-01',
             'end_date' => '2026-10-31',
         ]), $props['routes']['expensesPrint']);
-        $this->assertSame(route('expenses.update', Expense::where('category', 'Listrik')->first()), $props['expenses'][0]['update_url']);
-        $this->assertSame(route('expenses.destroy', Expense::where('category', 'Listrik')->first()), $props['expenses'][0]['destroy_url']);
+        $this->assertSame(route('expenses.update', Expense::where('uraian', 'Bayar listrik toko')->first()), $props['expenses'][0]['update_url']);
+        $this->assertSame(route('expenses.destroy', Expense::where('uraian', 'Bayar listrik toko')->first()), $props['expenses'][0]['destroy_url']);
     }
 
     public function test_admin_can_update_delete_and_print_expenses(): void
@@ -502,15 +516,20 @@ class CashierReportAccessTest extends TestCase
             'spent_at' => '2026-10-09',
             'category' => 'Listrik',
             'description' => 'Bayar listrik toko',
+            'uraian' => 'Bayar listrik toko',
+            'volume' => 1,
+            'unit' => 'Bulan',
+            'price' => 850000,
             'amount' => 850000,
         ]);
 
         $this->actingAs($admin)
             ->put(route('expenses.update', $expense), [
                 'spent_at' => '2026-10-10',
-                'category' => 'Operasional',
-                'description' => 'Biaya operasional toko',
-                'amount' => 950000,
+                'uraian' => 'Biaya operasional toko',
+                'volume' => 1,
+                'unit' => 'Bulan',
+                'price' => 950000,
             ])
             ->assertRedirect(route('dashboard', ['page' => 'operations']));
 
@@ -519,6 +538,9 @@ class CashierReportAccessTest extends TestCase
             'spent_at' => '2026-10-10 00:00:00',
             'category' => 'Operasional',
             'description' => 'Biaya operasional toko',
+            'uraian' => 'Biaya operasional toko',
+            'unit' => 'Bulan',
+            'price' => 950000,
             'amount' => 950000,
         ]);
 

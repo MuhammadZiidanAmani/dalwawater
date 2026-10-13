@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DashboardRequest;
 use App\Models\AuditLog;
 use App\Models\CashierShift;
 use App\Models\Category;
@@ -12,15 +13,15 @@ use App\Models\StockOpname;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\DashboardMetrics;
 use Illuminate\Contracts\View\View;
-use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function __invoke(Request $request): View
+    public function __invoke(DashboardRequest $request, DashboardMetrics $metrics): View
     {
         if (! auth()->check()) {
             return view('auth.login');
@@ -35,17 +36,16 @@ class DashboardController extends Controller
             abort(403, 'Akun tidak aktif.');
         }
 
-        $filters = $request->validate([
-            'page' => ['nullable', 'string', 'max:80'],
-            'start_date' => ['nullable', 'date'],
-            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
-            'user_id' => ['nullable', 'integer', 'exists:users,id'],
-            'payment_status' => ['nullable', 'in:paid,pending'],
-            'payment_type' => ['nullable', 'in:cash,transfer'],
-        ]);
+        $filters = $request->validated();
 
-        $startDate = $filters['start_date'] ?? Carbon::today()->toDateString();
-        $endDate = $filters['end_date'] ?? Carbon::today()->toDateString();
+        $selectedPage = $filters['page'] ?? 'dashboard';
+        $selectedPeriodMonth = $filters['period_month'] ?? Carbon::today()->format('Y-m');
+        $periodStart = Carbon::createFromFormat('Y-m', $selectedPeriodMonth)->startOfMonth();
+        $periodEnd = $periodStart->copy()->endOfMonth();
+        $defaultStartDate = Carbon::today()->toDateString();
+        $defaultEndDate = Carbon::today()->toDateString();
+        $startDate = $selectedPage === 'history' ? $periodStart->toDateString() : ($filters['start_date'] ?? $defaultStartDate);
+        $endDate = $selectedPage === 'history' ? $periodEnd->toDateString() : ($filters['end_date'] ?? $defaultEndDate);
         $selectedUserId = $request->user()?->isAdmin() ? ($filters['user_id'] ?? null) : null;
         $selectedPaymentStatus = $filters['payment_status'] ?? null;
         $selectedPaymentType = $filters['payment_type'] ?? null;
@@ -54,14 +54,27 @@ class DashboardController extends Controller
 
         $products = Product::orderBy('nama_barang')->get();
         $activeProducts = Product::where('status', 'active')->orderBy('nama_barang')->get();
-        $transactions = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest()->limit(15)->get();
-        $latestTransaction = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest()->first();
+        $transactions = Transaction::visibleTo($request->user())
+            ->where('status', '!=', 'void')
+            ->with(['user', 'details.product'])
+            ->latest()
+            ->limit(15)
+            ->get();
+        $latestTransaction = Transaction::visibleTo($request->user())
+            ->where('status', '!=', 'void')
+            ->with(['user', 'details.product'])
+            ->latest()
+            ->first();
 
         $rangeTransactionsQuery = Transaction::visibleTo($request->user())
             ->whereBetween('created_at', [$start, $end])
+            ->where('status', '!=', 'void')
             ->when($selectedUserId, fn ($query) => $query->where('user_id', $selectedUserId))
             ->when($selectedPaymentStatus, fn ($query) => $query->where('payment_status', $selectedPaymentStatus))
             ->when($selectedPaymentType, fn ($query) => $query->where('payment_type', $selectedPaymentType));
+        $dashboardTransactionsQuery = Transaction::visibleTo($request->user())
+            ->whereDate('created_at', Carbon::today())
+            ->where('status', '!=', 'void');
 
         $lowStockProducts = Product::where('stok', '<=', 20)
             ->orderBy('stok')
@@ -81,9 +94,28 @@ class DashboardController extends Controller
                     ->sum('total'),
             ];
         });
+        $netProfitChart = collect(range(11, 0))->map(function (int $monthsAgo) use ($request, $metrics): array {
+            $month = Carbon::today()->startOfMonth()->subMonths($monthsAgo);
+            $monthTransactions = Transaction::visibleTo($request->user())
+                ->whereBetween('created_at', [$month->copy()->startOfMonth(), $month->copy()->endOfMonth()])
+                ->where('status', '!=', 'void')
+                ->where('payment_status', 'paid');
+            $grossProfit = $metrics->transactionProfit(clone $monthTransactions);
+            $expense = $request->user()->isAdmin()
+                ? (int) Expense::whereDate('spent_at', '>=', $month->copy()->startOfMonth()->toDateString())
+                    ->whereDate('spent_at', '<=', $month->copy()->endOfMonth()->toDateString())
+                    ->sum('amount')
+                : 0;
+
+            return [
+                'label' => $month->translatedFormat('M y'),
+                'count' => $grossProfit - $expense,
+            ];
+        });
+        $financialChart = $metrics->financialChart($request->user(), $periodStart, $periodEnd);
 
         $cashiers = User::whereIn('role', ['admin', 'cashier'])
-            ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())->where('payment_status', 'paid')], 'total')
+            ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())->where('status', '!=', 'void')->where('payment_status', 'paid')], 'total')
             ->orderBy('role')
             ->orderBy('name')
             ->get();
@@ -95,7 +127,15 @@ class DashboardController extends Controller
                 $query->whereNull('transactions.id')
                     ->orWhereBetween('transactions.created_at', [$start, $end]);
             })
-            ->select('products.nama_barang', DB::raw('COALESCE(SUM(transaction_details.qty), 0) as qty'))
+            ->where(function ($query) {
+                $query->whereNull('transactions.id')
+                    ->orWhere('transactions.status', '!=', 'void');
+            })
+            ->select(
+                'products.nama_barang',
+                DB::raw('COALESCE(SUM(transaction_details.qty), 0) as qty'),
+                DB::raw('COALESCE(SUM(transaction_details.subtotal), 0) as total')
+            )
             ->groupBy('products.id', 'products.nama_barang')
             ->orderByDesc('qty')
             ->limit(6)
@@ -105,14 +145,15 @@ class DashboardController extends Controller
             ->whereDate('created_at', Carbon::today())
             ->where('status', '!=', 'void');
 
-        $allTransactionsQuery = Transaction::visibleTo($request->user())
+        $periodTransactionsQuery = Transaction::visibleTo($request->user())
+            ->whereBetween('created_at', [$start, $end])
             ->where('status', '!=', 'void');
 
         $stats = [
             'total_stock' => Product::sum('stok'),
-            'total_transactions' => (clone $allTransactionsQuery)->count(),
-            'total_transaction_amount' => (clone $allTransactionsQuery)->sum('total'),
-            'total_income' => (clone $allTransactionsQuery)->where('payment_status', 'paid')->sum('total'),
+            'total_transactions' => (clone $todayTransactionsQuery)->count(),
+            'total_transaction_amount' => (clone $todayTransactionsQuery)->sum('total'),
+            'total_income' => $metrics->transactionProfit((clone $todayTransactionsQuery)->where('payment_status', 'paid')),
             'today_transactions' => (clone $todayTransactionsQuery)->count(),
             'today_income' => (clone $todayTransactionsQuery)->where('payment_status', 'paid')->sum('total'),
             'today_pending' => (clone $todayTransactionsQuery)->where('payment_status', 'pending')->sum('total'),
@@ -181,21 +222,56 @@ class DashboardController extends Controller
             : collect();
         $expenses = $request->user()->isAdmin()
             ? Expense::with('user')
-                ->whereBetween('spent_at', [$startDate, $endDate])
+                ->whereDate('spent_at', '>=', $startDate)
+                ->whereDate('spent_at', '<=', $endDate)
                 ->orderByDesc('spent_at')
                 ->orderByDesc('id')
                 ->get()
             : collect();
+        $expenseTotal = (int) $expenses->sum('amount');
+        $reportPaidQuery = (clone $reportBaseQuery)->where('payment_status', 'paid');
+        $reportPaidTransactions = (clone $reportPaidQuery)->count();
+        $reportIncome = (int) (clone $reportPaidQuery)->sum('total');
+        $reportCapital = $metrics->transactionCapital(clone $reportPaidQuery);
+        $reportGrossProfit = $metrics->transactionProfit(clone $reportPaidQuery);
+        $reportNetProfit = $reportGrossProfit - $expenseTotal;
+        $reportPurchaseQuery = StockIn::query()->whereBetween('tanggal', [$startDate, $endDate]);
+        $reportPurchaseTotal = $request->user()->isAdmin() ? $metrics->purchaseTotal(clone $reportPurchaseQuery) : 0;
+        $reportPurchaseQty = $request->user()->isAdmin() ? (int) (clone $reportPurchaseQuery)->sum('qty') : 0;
+        $dailyTransactionsQuery = Transaction::visibleTo($request->user())
+            ->whereDate('created_at', Carbon::today())
+            ->where('status', '!=', 'void')
+            ->when($selectedUserId, fn ($query) => $query->where('user_id', $selectedUserId))
+            ->when($selectedPaymentStatus, fn ($query) => $query->where('payment_status', $selectedPaymentStatus))
+            ->when($selectedPaymentType, fn ($query) => $query->where('payment_type', $selectedPaymentType));
+        $monthlyTransactionsQuery = Transaction::visibleTo($request->user())
+            ->whereBetween('created_at', [$periodStart, $periodEnd])
+            ->where('status', '!=', 'void')
+            ->when($selectedUserId, fn ($query) => $query->where('user_id', $selectedUserId))
+            ->when($selectedPaymentStatus, fn ($query) => $query->where('payment_status', $selectedPaymentStatus))
+            ->when($selectedPaymentType, fn ($query) => $query->where('payment_type', $selectedPaymentType));
 
         $reportStats = [
             'transactions' => (clone $reportBaseQuery)->count(),
-            'income' => (clone $reportBaseQuery)->where('payment_status', 'paid')->sum('total'),
+            'paid_transactions' => $reportPaidTransactions,
+            'daily_transactions' => (clone $dailyTransactionsQuery)->count(),
+            'monthly_transactions' => (clone $monthlyTransactionsQuery)->count(),
+            'income' => $reportIncome,
+            'capital' => $reportCapital,
+            'gross_profit' => $reportGrossProfit,
+            'expense_total' => $expenseTotal,
+            'net_profit' => $reportNetProfit,
+            'purchase_total' => $reportPurchaseTotal,
+            'purchase_qty' => $reportPurchaseQty,
+            'average_transaction' => $reportPaidTransactions > 0 ? (int) round($reportIncome / $reportPaidTransactions) : 0,
             'items' => DB::table('transaction_details')
                 ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
                 ->whereIn('transactions.id', (clone $reportBaseQuery)->select('id'))
                 ->sum('transaction_details.qty'),
-            'cash_income' => (clone $reportBaseQuery)->where('payment_type', 'cash')->sum('total'),
-            'transfer_income' => (clone $reportBaseQuery)->where('payment_type', 'transfer')->sum('total'),
+            'cash_income' => (clone $reportBaseQuery)->where('payment_status', 'paid')->where('payment_type', 'cash')->sum('total'),
+            'transfer_income' => (clone $reportBaseQuery)->where('payment_status', 'paid')->where('payment_type', 'transfer')->sum('total'),
+            'pending_income' => (clone $reportBaseQuery)->where('payment_status', 'pending')->sum('total'),
+            'expense_count' => $expenses->count(),
         ];
 
         $categories = Category::all();
@@ -226,16 +302,20 @@ class DashboardController extends Controller
             'latestTransaction' => $latestTransaction,
             'lowStockProducts' => $lowStockProducts,
             'salesChart' => $salesChart,
+            'netProfitChart' => $netProfitChart,
+            'financialChart' => $financialChart,
             'cashiers' => $cashiers,
             'monthlyProductSales' => $monthlyProductSales,
             'stats' => $stats,
             'startDate' => $startDate,
             'endDate' => $endDate,
+            'selectedPeriodMonth' => $selectedPeriodMonth,
             'selectedUserId' => $selectedUserId,
             'selectedPaymentStatus' => $selectedPaymentStatus,
             'selectedPaymentType' => $selectedPaymentType,
             'reportTransactions' => $reportTransactions,
             'reportStats' => $reportStats,
+            'dashboardTransactions' => (clone $dashboardTransactionsQuery)->with(['user', 'details.product'])->latest()->get(),
             'historyTransactions' => (clone $rangeTransactionsQuery)->with(['user', 'details.product'])->latest()->get(),
             'stockEntries' => $stockEntries,
             'purchaseHistory' => $purchaseHistory,

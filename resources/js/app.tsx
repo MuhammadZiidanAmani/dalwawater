@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, useEffect, useId, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Badge, Button, Card, DataTable, Field, FormGrid, FormStack, Tabs } from './components';
 
@@ -46,6 +46,7 @@ type Transaction = {
     uang_diterima: number;
     kembalian: number;
     receipt_url: string;
+    receipt_pdf_url: string;
     thermal_receipt_url: string;
     thermal_payload_url: string;
     update_url: string | null;
@@ -88,8 +89,13 @@ type Expense = {
     spent_at: string;
     spent_at_input: string;
     category: string;
+    uraian: string;
     description: string;
+    volume: number;
+    unit: string | null;
+    price: number;
     amount: number;
+    notes: string | null;
     user: string;
     attachment_url: string | null;
     update_url: string | null;
@@ -146,7 +152,7 @@ type StockOpname = {
     date: string;
     user: string;
     notes: string | null;
-    adjustments: Array<{ product: string; system_stock: number; actual_stock: number; difference: number }>;
+    adjustments: Array<{ product: string; system_stock: number; actual_stock: number; difference: number; reason: string | null }>;
 };
 
 type AuditLog = {
@@ -159,6 +165,21 @@ type AuditLog = {
 type SalesPoint = {
     label: string;
     count: number;
+};
+
+type FinancialChartPoint = {
+    label: string;
+    income: number;
+    expense: number;
+    capital: number;
+    gross_profit: number;
+    net_profit: number;
+};
+
+type ProductSalesPoint = {
+    name: string;
+    qty: number;
+    total: number;
 };
 
 type ReceiptSettings = {
@@ -175,25 +196,6 @@ type ReceiptSettings = {
     receipt_show_payment: string;
 };
 
-type ReceiptPrintPayload = {
-    settings: ReceiptSettings;
-    transaction: {
-        code: string;
-        created_at: string;
-        cashier: string;
-        customer_name: string | null;
-        payment_status: 'paid' | 'pending';
-        payment_type: string | null;
-        status: 'completed' | 'void';
-        subtotal: number;
-        discount_total: number;
-        total: number;
-        uang_diterima: number;
-        kembalian: number;
-    };
-    items: Array<{ name: string; qty: number; price: number; subtotal: number }>;
-};
-
 type AppProps = {
     csrf: string;
     user: User;
@@ -206,6 +208,7 @@ type AppProps = {
     activeProducts: Product[];
     lowStockProducts: Product[];
     transactions: Transaction[];
+    dashboardTransactions: Transaction[];
     historyTransactions: Transaction[];
     stockEntries: StockIn[];
     purchaseHistory: StockIn[];
@@ -218,6 +221,9 @@ type AppProps = {
     stockOpnames: StockOpname[];
     auditLogs: AuditLog[];
     salesChart: SalesPoint[];
+    netProfitChart: SalesPoint[];
+    financialChart: FinancialChartPoint[];
+    monthlyProductSales: ProductSalesPoint[];
     filters: Record<string, string | null>;
     flash: {
         success: string | null;
@@ -227,7 +233,7 @@ type AppProps = {
 
 type CartItem = Product & { qty: number; discountType: 'amount' | 'percent'; discountValue: number };
 type Theme = 'light' | 'dark';
-type NavLeaf = { id: string; label: string; icon: string };
+type NavLeaf = { id: string; label: string; icon: string; children?: NavLeaf[] };
 type NavGroup = { heading: string; items: NavLeaf[] };
 
 declare global {
@@ -285,6 +291,81 @@ const matchesSearchText = (source: string, query: string) => {
 
     return source.toLowerCase().includes(keyword) || normalizeSearchText(source).includes(normalizeSearchText(keyword));
 };
+
+const normalizePeriodMonth = (period: string | null | undefined) => {
+    if (period && /^\d{4}-\d{2}$/.test(period)) {
+        return period;
+    }
+
+    const date = new Date();
+
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+
+type SortDirection = 'asc' | 'desc';
+
+const compareText = (first: string | number | null | undefined, second: string | number | null | undefined) => (
+    String(first ?? '').localeCompare(String(second ?? ''), 'id', { numeric: true, sensitivity: 'base' })
+);
+
+const compareNumber = (first: number | string | null | undefined, second: number | string | null | undefined) => (
+    Number(first ?? 0) - Number(second ?? 0)
+);
+
+const parseDateForSort = (value: string | null | undefined) => {
+    const text = String(value ?? '').trim();
+    const match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+
+    if (match) {
+        const [, day, month, year, hour = '0', minute = '0'] = match;
+
+        return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)).getTime();
+    }
+
+    const parsed = Date.parse(text);
+
+    return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+function SortableHeader<K extends string>({ align = 'center', column, label, onSort, sortDirection, sortKey }: { align?: 'left' | 'center' | 'right'; column: K; label: string; onSort: (key: K) => void; sortDirection: SortDirection; sortKey: K }) {
+    const active = sortKey === column;
+    const justify = align === 'left' ? 'justify-start' : align === 'right' ? 'justify-end' : 'justify-center';
+    const upActive = active && sortDirection === 'asc';
+    const downActive = active && sortDirection === 'desc';
+
+    return (
+        <button className={`inline-flex w-full items-center gap-2 font-semibold text-inherit transition hover:text-primary ${justify}`} type="button" onClick={() => onSort(column)}>
+            <span>{label}</span>
+            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
+                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 0 8 5H0L4 0Z" />
+                </svg>
+                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
+                    <path d="M4 5 0 0h8L4 5Z" />
+                </svg>
+            </span>
+        </button>
+    );
+}
+
+function useTableSort<K extends string>(defaultKey: K, defaultDirection: SortDirection = 'asc') {
+    const [sortKey, setSortKey] = useState<K>(defaultKey);
+    const [sortDirection, setSortDirection] = useState<SortDirection>(defaultDirection);
+    const toggleSort = (key: K) => {
+        if (sortKey === key) {
+            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+            return;
+        }
+
+        setSortKey(key);
+        setSortDirection('asc');
+    };
+
+    return { sortKey, sortDirection, toggleSort };
+}
+
+const withSortDirection = (value: number, direction: SortDirection) => value * (direction === 'asc' ? 1 : -1);
+
 const calculateProfitPercent = (purchasePrice: string | number, salePrice: string | number) => {
     const buy = Number(numericOnly(purchasePrice));
     const sell = Number(numericOnly(salePrice));
@@ -318,6 +399,8 @@ const navFor = (isAdmin: boolean): NavGroup[] => isAdmin ? [
         heading: 'Data Stok',
         items: [
             { id: 'stock', label: 'Stok', icon: 'stock' },
+            { id: 'purchases', label: 'Pembelian', icon: 'receipt' },
+            { id: 'stock-opname', label: 'Stok Opname', icon: 'boxes' },
         ],
     },
     {
@@ -333,6 +416,7 @@ const navFor = (isAdmin: boolean): NavGroup[] => isAdmin ? [
             { id: 'categories', label: 'Kategori', icon: 'category' },
             { id: 'inventory', label: 'Produk', icon: 'product' },
             { id: 'suppliers', label: 'Suplier', icon: 'supplier' },
+            { id: 'audit-login', label: 'Audit Login', icon: 'history' },
         ],
     },
 ] : [
@@ -341,13 +425,13 @@ const navFor = (isAdmin: boolean): NavGroup[] => isAdmin ? [
         items: [
             { id: 'dashboard', label: 'Beranda', icon: 'dashboard' },
             { id: 'transactions', label: 'Transaksi', icon: 'cashier' },
-            { id: 'operations', label: 'Operasional', icon: 'clipboard' },
+            { id: 'operations', label: 'Pengeluaran', icon: 'wallet' },
         ],
     },
     {
         heading: 'Data Laporan',
         items: [
-            { id: 'history', label: 'Riwayat Transaksi', icon: 'history' },
+            { id: 'transaction-history', label: 'Riwayat Transaksi', icon: 'history' },
         ],
     },
     {
@@ -511,46 +595,6 @@ function postForm(action: string | null, csrf: string, fields: Record<string, st
     form.submit();
 }
 
-const LOCAL_PRINT_AGENT_URL = 'http://127.0.0.1:9123/print';
-
-async function sendToLocalPrintAgent(payload: ReceiptPrintPayload) {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 3000);
-
-    try {
-        const response = await fetch(LOCAL_PRINT_AGENT_URL, {
-            body: JSON.stringify(payload),
-            headers: { 'Content-Type': 'application/json' },
-            method: 'POST',
-            signal: controller.signal,
-        });
-
-        if (!response.ok) {
-            throw new Error('Local print agent menolak cetak.');
-        }
-    } finally {
-        window.clearTimeout(timeout);
-    }
-}
-
-async function reprintThermal(transaction: Transaction) {
-    try {
-        const payloadResponse = await fetch(transaction.thermal_payload_url, {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-        });
-
-        if (!payloadResponse.ok) {
-            throw new Error('Payload struk tidak bisa diambil.');
-        }
-
-        await sendToLocalPrintAgent(await payloadResponse.json());
-        window.alert('Struk berhasil dikirim ke printer thermal.');
-    } catch (error) {
-        window.alert('Struk belum tercetak. Pastikan local print agent aktif dan printer X58MP II siap.');
-    }
-}
-
 function App({ props }: { props: AppProps }) {
     const initialPage = new URLSearchParams(window.location.search).get('page') || 'dashboard';
     const [page, setPage] = useState(initialPage);
@@ -562,6 +606,7 @@ function App({ props }: { props: AppProps }) {
     const [editingCategory, setEditingCategory] = useState<Category | null>(null);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [editingStockIn, setEditingStockIn] = useState<StockIn | null>(null);
+    const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
     const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
     const [flashVisible, setFlashVisible] = useState(Boolean(props.flash.success || props.flash.warning));
     const navGroups = navFor(props.user.isAdmin);
@@ -605,6 +650,9 @@ function App({ props }: { props: AppProps }) {
         if (nextPage !== 'stock-edit') {
             setEditingStockIn(null);
         }
+        if (nextPage !== 'expense-edit') {
+            setEditingExpense(null);
+        }
         if (nextPage !== 'transaction-edit') {
             setEditingTransaction(null);
         }
@@ -614,7 +662,7 @@ function App({ props }: { props: AppProps }) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const resolvedPage = page === 'cashiers' ? 'settings' : page === 'product-create' || page === 'product-edit' ? 'inventory' : page === 'category-create' || page === 'category-edit' ? 'categories' : page === 'supplier-create' || page === 'supplier-edit' ? 'suppliers' : page === 'stockin' || page === 'stock-create' || page === 'stock-edit' || page === 'stock-purchase' ? 'stock' : page === 'transaction-edit' ? 'transaction-history' : page;
+    const resolvedPage = page === 'cashiers' ? 'settings' : page === 'product-create' || page === 'product-edit' ? 'inventory' : page === 'category-create' || page === 'category-edit' ? 'categories' : page === 'supplier-create' || page === 'supplier-edit' ? 'suppliers' : page === 'stockin' ? 'stock' : page === 'stock-create' || page === 'stock-edit' || page === 'stock-purchase' ? 'purchases' : page === 'expense-create' || page === 'expense-edit' ? 'operations' : page === 'transaction-edit' ? 'transaction-history' : page;
 
     return (
         <div className="min-h-screen bg-background text-foreground">
@@ -669,18 +717,35 @@ function App({ props }: { props: AppProps }) {
                                     {group.heading}
                                 </div>
                                 {group.items.map((item) => {
-                                    const active = resolvedPage === item.id;
+                                    const childActive = item.children?.some((child) => resolvedPage === child.id) ?? false;
+                                    const active = resolvedPage === item.id || childActive;
 
                                     return (
-                                        <button
-                                            key={item.id}
-                                            className={`mt-1 flex min-h-10 w-full items-center gap-3 rounded-sm px-3 text-left text-sm font-medium leading-5 transition [&_svg]:size-[21px] ${active ? 'bg-lightprimary text-primary' : 'text-sidebar-foreground hover:bg-lightprimary hover:text-primary'}`}
-                                            type="button"
-                                            onClick={() => activate(item.id)}
-                                        >
-                                            <span className="grid size-6 place-items-center"><NavIcon name={item.icon} /></span>
-                                            <span className="truncate">{item.label}</span>
-                                        </button>
+                                        <div className="grid gap-1" key={item.id}>
+                                            <button
+                                                className={`mt-1 flex min-h-10 w-full items-center gap-3 rounded-sm px-3 text-left text-sm font-medium leading-5 transition [&_svg]:size-[21px] ${active ? 'bg-lightprimary text-primary' : 'text-sidebar-foreground hover:bg-lightprimary hover:text-primary'}`}
+                                                type="button"
+                                                onClick={() => activate(item.id)}
+                                            >
+                                                <span className="grid size-6 place-items-center"><NavIcon name={item.icon} /></span>
+                                                <span className="truncate">{item.label}</span>
+                                            </button>
+                                            {item.children?.map((child) => {
+                                                const childIsActive = resolvedPage === child.id;
+
+                                                return (
+                                                    <button
+                                                        className={`ms-9 flex min-h-9 items-center gap-2 rounded-sm px-3 text-left text-xs font-semibold leading-4 transition ${childIsActive ? 'bg-lightprimary text-primary' : 'text-muted-foreground hover:bg-lightprimary hover:text-primary'}`}
+                                                        key={child.id}
+                                                        type="button"
+                                                        onClick={() => activate(child.id)}
+                                                    >
+                                                        <span className="size-1.5 rounded-full bg-current" />
+                                                        <span className="truncate">{child.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -794,14 +859,20 @@ function App({ props }: { props: AppProps }) {
                             {page === 'supplier-edit' && props.user.isAdmin && editingSupplier && <SupplierForm supplier={editingSupplier} props={props} onBack={() => activate('suppliers')} />}
                             {page === 'supplier-edit' && props.user.isAdmin && !editingSupplier && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
                             {page !== 'supplier-create' && page !== 'supplier-edit' && resolvedPage === 'suppliers' && props.user.isAdmin && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
-                            {page === 'stock-purchase' && props.user.isAdmin && <PurchaseForm props={props} onBack={() => activate('stock')} />}
-                            {page === 'stock-create' && props.user.isAdmin && <StockInForm props={props} onBack={() => activate('stock')} />}
-                            {page === 'stock-edit' && props.user.isAdmin && editingStockIn && <StockInForm stockIn={editingStockIn} props={props} onBack={() => activate('stock')} />}
-                            {page === 'stock-edit' && props.user.isAdmin && !editingStockIn && <StockPage props={props} onPurchase={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
-                            {page !== 'stock-purchase' && page !== 'stock-create' && page !== 'stock-edit' && resolvedPage === 'stock' && props.user.isAdmin && <StockPage props={props} onPurchase={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {page === 'stock-purchase' && props.user.isAdmin && <PurchaseForm props={props} onBack={() => activate('purchases')} />}
+                            {page === 'stock-create' && props.user.isAdmin && <StockInForm props={props} onBack={() => activate('purchases')} />}
+                            {page === 'stock-edit' && props.user.isAdmin && editingStockIn && <StockInForm stockIn={editingStockIn} props={props} onBack={() => activate('purchases')} />}
+                            {page === 'stock-edit' && props.user.isAdmin && !editingStockIn && <Purchases props={props} onCreate={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {resolvedPage === 'stock' && props.user.isAdmin && <StockPage props={props} />}
+                            {page !== 'stock-purchase' && page !== 'stock-create' && page !== 'stock-edit' && resolvedPage === 'purchases' && props.user.isAdmin && <Purchases props={props} onCreate={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {resolvedPage === 'stock-opname' && props.user.isAdmin && <StockOpnamePage props={props} />}
                             {resolvedPage === 'history' && <History props={props} onEditTransaction={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
                             {resolvedPage === 'transaction-history' && page !== 'transaction-edit' && <TransactionHistory props={props} onEdit={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
-                            {resolvedPage === 'operations' && <Operations props={props} />}
+                            {page === 'expense-create' && props.user.isAdmin && <ExpenseForm props={props} onBack={() => activate('operations')} />}
+                            {page === 'expense-edit' && props.user.isAdmin && editingExpense && <ExpenseForm expense={editingExpense} props={props} onBack={() => activate('operations')} />}
+                            {page === 'expense-edit' && props.user.isAdmin && !editingExpense && <Operations props={props} onCreate={() => activate('expense-create')} onEdit={(expense) => { setEditingExpense(expense); activate('expense-edit'); }} />}
+                            {page !== 'expense-create' && page !== 'expense-edit' && resolvedPage === 'operations' && <Operations props={props} onCreate={() => activate('expense-create')} onEdit={(expense) => { setEditingExpense(expense); activate('expense-edit'); }} />}
+                            {resolvedPage === 'audit-login' && props.user.isAdmin && <AuditLoginPage props={props} />}
                             {resolvedPage === 'settings' && props.user.isAdmin && <Cashiers props={props} />}
                             {resolvedPage === 'account' && <Account props={props} />}
                         </main>
@@ -814,7 +885,7 @@ function App({ props }: { props: AppProps }) {
 
             <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-ld bg-card px-2 py-2 shadow-lg xl:hidden">
                 {bottomNav.slice(0, props.user.isAdmin ? 5 : 4).map((item) => {
-                    const active = resolvedPage === item.id;
+                    const active = resolvedPage === item.id || (item.children?.some((child) => resolvedPage === child.id) ?? false);
 
                     return (
                         <button
@@ -834,14 +905,17 @@ function App({ props }: { props: AppProps }) {
 }
 
 function Dashboard({ props }: { props: AppProps }) {
+    const { sortDirection: recentSortDirection, sortKey: recentSortKey, toggleSort: toggleRecentSort } = useTableSort<'number' | 'cashier' | 'status' | 'total'>('number');
+
     const dashboardCards = [
         ['Jumlah Transaksi', props.stats.total_transactions, 'Trx'],
         ['Total Transaksi', props.stats.total_transaction_amount, 'Rp'],
         ['Pendapatan', props.stats.total_income, 'Rp'],
     ];
-    const recentTransactions = props.transactions.slice(0, 5);
+    const dashboardTransactions = (props.dashboardTransactions ?? []).filter((transaction) => transaction.status !== 'void');
+    const recentTransactions = dashboardTransactions.slice(0, 5);
     const topProducts = Object.values(
-        props.historyTransactions.reduce<Record<string, { name: string; qty: number; total: number }>>((carry, transaction) => {
+        dashboardTransactions.reduce<Record<string, { name: string; qty: number; total: number }>>((carry, transaction) => {
             if (transaction.status === 'void') {
                 return carry;
             }
@@ -857,14 +931,24 @@ function Dashboard({ props }: { props: AppProps }) {
     )
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 5);
+    const sortedRecentTransactions = [...recentTransactions].sort((first, second) => {
+        const statusText = (transaction: Transaction) => transaction.status === 'void' ? 'Batal' : transaction.payment_status === 'paid' ? 'Lunas' : 'Belum Bayar';
+        const value = recentSortKey === 'cashier'
+            ? compareText(first.cashier, second.cashier)
+            : recentSortKey === 'status'
+                ? compareText(statusText(first), statusText(second))
+                : recentSortKey === 'total'
+                    ? compareNumber(first.total, second.total)
+                    : compareText(first.kode_transaksi, second.kode_transaksi);
+
+        return withSortDirection(value, recentSortDirection);
+    });
 
     return (
         <section className="grid gap-6">
-            <div className="flex flex-col gap-1">
-                <div>
-                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Beranda</h1>
-                    <p className="text-sm leading-5 text-muted-foreground">Ringkasan Operasional Dalwa Water Tegal.</p>
-                </div>
+            <div>
+                <h1 className="text-2xl font-semibold leading-8 text-foreground">Beranda</h1>
+                <p className="text-sm leading-5 text-muted-foreground">Ringkasan operasional hari ini.</p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-3">
@@ -875,9 +959,9 @@ function Dashboard({ props }: { props: AppProps }) {
                 <Card title="Transaksi Terbaru">
                     <DataTable>
                         <table>
-                            <thead><tr><th>Nomor</th><th>Kasir</th><th>Status</th><th>Total</th></tr></thead>
+                            <thead><tr><th><SortableHeader column="number" label="Nomor" sortDirection={recentSortDirection} sortKey={recentSortKey} onSort={toggleRecentSort} /></th><th><SortableHeader column="cashier" label="Kasir" sortDirection={recentSortDirection} sortKey={recentSortKey} onSort={toggleRecentSort} /></th><th><SortableHeader column="status" label="Status" sortDirection={recentSortDirection} sortKey={recentSortKey} onSort={toggleRecentSort} /></th><th className="!text-right"><SortableHeader align="right" column="total" label="Total" sortDirection={recentSortDirection} sortKey={recentSortKey} onSort={toggleRecentSort} /></th></tr></thead>
                             <tbody>
-                                {recentTransactions.length ? recentTransactions.map((transaction) => (
+                                {sortedRecentTransactions.length ? sortedRecentTransactions.map((transaction) => (
                                     <tr key={transaction.id}>
                                         <td className="!text-left"><strong className="text-foreground">{transaction.kode_transaksi}</strong><br /><span className="text-xs text-muted-foreground">{transaction.created_at}</span></td>
                                         <td>{transaction.cashier}</td>
@@ -901,7 +985,7 @@ function Dashboard({ props }: { props: AppProps }) {
                                 </div>
                                 <strong className="whitespace-nowrap text-sm text-foreground">{rupiah(product.total)}</strong>
                             </div>
-                        )) : <p className="text-sm text-muted-foreground">Belum ada produk terjual pada periode ini.</p>}
+                        )) : <p className="text-sm text-muted-foreground">Belum ada produk terjual hari ini.</p>}
                     </div>
                 </Card>
             </div>
@@ -948,22 +1032,6 @@ function Transactions({ props }: { props: AppProps }) {
         return matchesKeyword;
     });
     const canPay = items.length > 0 && !submitting && (paymentStatus === 'pending' || paymentType === 'transfer' || paid >= total);
-
-    if (!props.user.isAdmin && !props.currentShift) {
-        return (
-            <section className="grid gap-6">
-                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Transaksi Penjualan</h1><p className="text-sm text-muted-foreground">Shift kasir harus aktif sebelum membuat transaksi.</p></div>
-                <Card title="Buka Shift Kasir">
-                    <FormGrid method="POST" action={props.routes.cashierShiftsOpen ?? ''}>
-                        <input type="hidden" name="_token" value={props.csrf} />
-                        <Field label="Modal Awal"><input name="opening_cash" type="number" min={0} defaultValue={0} required /></Field>
-                        <Field label="Catatan"><input name="notes" /></Field>
-                        <Button variant="primary" type="submit">Buka Shift</Button>
-                    </FormGrid>
-                </Card>
-            </section>
-        );
-    }
 
     const addProduct = (product: Product) => {
         setCart((current) => {
@@ -1058,14 +1126,6 @@ function Transactions({ props }: { props: AppProps }) {
 
         const payload = await response.json().catch(() => null);
 
-        if (payload?.receipt_payload) {
-            try {
-                await sendToLocalPrintAgent(payload.receipt_payload);
-            } catch (error) {
-                window.alert('Transaksi tersimpan, tetapi struk belum tercetak. Pastikan local print agent aktif di komputer kasir.');
-            }
-        }
-
         window.location.href = payload?.redirect_url || props.routes.dashboard || '/';
     };
 
@@ -1103,7 +1163,7 @@ function Transactions({ props }: { props: AppProps }) {
                                                         <path d="M8 14h8" />
                                                     </svg>
                                                 </span>
-                                                <span className={`rounded-md px-2 py-1 text-[11px] font-bold ${isLowStock ? 'bg-lighterror text-error' : 'bg-lightprimary text-primary'}`}>{isLowStock ? 'Stok rendah' : 'Tersedia'}</span>
+                                                <span className={`whitespace-nowrap text-right text-xs font-bold leading-5 ${isLowStock ? 'text-error' : 'text-primary'}`}>Stok : {product.stok}</span>
                                             </span>
                                             <span className="text-base font-bold leading-6 text-foreground">{product.nama_barang}</span>
                                         </span>
@@ -1254,7 +1314,7 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
             </div>
 
             <Card>
-                <div className="grid gap-3 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)_auto]">
+                <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)_auto]">
                     <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori">
                         {productCategories.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
@@ -1263,9 +1323,6 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
                         Filter
                     </Button>
                 </div>
-            </Card>
-
-            <Card>
                 <ProductTable products={filteredProducts} showActions={props.user.isAdmin} csrf={props.csrf} onEdit={onEdit} />
                 <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredProducts.length} dari {props.products.length} data</p>
             </Card>
@@ -1273,7 +1330,7 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
     );
 }
 
-function StockPage({ onPurchase, onEdit, props }: { onPurchase: () => void; onEdit: (stockIn: StockIn) => void; props: AppProps }) {
+function StockPage({ props }: { props: AppProps }) {
     const [category, setCategory] = useState('Semua kategori');
     const [productId, setProductId] = useState('Semua produk');
     const [query, setQuery] = useState('');
@@ -1281,34 +1338,32 @@ function StockPage({ onPurchase, onEdit, props }: { onPurchase: () => void; onEd
         'Semua kategori',
         ...Array.from(new Set([
             ...props.categories.map((item) => item.nama_kategori),
-            ...props.stockEntries.map((stockIn) => stockIn.product_category),
+            ...props.products.map((product) => product.kategori),
         ].filter(Boolean))),
     ];
     const stockProducts = [
         'Semua produk',
         ...props.products.map((product) => String(product.id)),
     ];
-    const filteredStockIns = props.stockEntries.filter((stockIn) => {
-        const matchesCategory = category === 'Semua kategori' || stockIn.product_category === category;
-        const matchesProduct = productId === 'Semua produk' || String(stockIn.product_id) === productId;
-        const matchesKeyword = matchesSearchText(`${stockIn.product} ${stockIn.barcode ?? ''} ${stockIn.product_code ?? ''}`, query);
+    const filteredProducts = props.products.filter((product) => {
+        const matchesCategory = category === 'Semua kategori' || product.kategori === category;
+        const matchesProduct = productId === 'Semua produk' || String(product.id) === productId;
+        const matchesKeyword = matchesSearchText(`${product.nama_barang} ${product.kode_barang ?? ''} ${product.kategori ?? ''}`, query);
 
         return matchesCategory && matchesProduct && matchesKeyword;
     });
+
     return (
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <h1 className="text-2xl font-semibold leading-8 text-foreground">Stok</h1>
-                    <p className="text-sm text-muted-foreground">Kelola barang masuk, pembelian, dan produk yang perlu segera diisi ulang.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    <Button className="self-start" variant="primary" onClick={onPurchase}>Pembelian</Button>
+                    <p className="text-sm text-muted-foreground">Informasi stok produk yang tersedia.</p>
                 </div>
             </div>
 
             <Card>
-                <div className="grid gap-3 lg:grid-cols-[minmax(180px,260px)_minmax(180px,260px)_minmax(360px,1fr)]">
+                <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(180px,260px)_minmax(180px,260px)_minmax(360px,1fr)]">
                     <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori stok">
                         {stockCategories.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
@@ -1324,15 +1379,36 @@ function StockPage({ onPurchase, onEdit, props }: { onPurchase: () => void; onEd
                         <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari nama barang..." aria-label="Cari stok barang" />
                     </div>
                 </div>
+                <StockTable products={filteredProducts} />
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredProducts.length} dari {props.products.length} data</p>
             </Card>
+        </section>
+    );
+}
+
+function Purchases({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: (stockIn: StockIn) => void; props: AppProps }) {
+    const [query, setQuery] = useState('');
+    const filteredPurchases = props.stockEntries.filter((stockIn) => {
+        return matchesSearchText(`${stockIn.invoice_number ?? ''} ${stockIn.supplier ?? ''} ${stockIn.product} ${stockIn.barcode ?? ''} ${stockIn.product_code ?? ''}`, query);
+    });
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Pembelian</h1>
+                    <p className="text-sm text-muted-foreground">Kelola pembelian produk, suplier, jumlah, harga, dan diskon.</p>
+                </div>
+                <Button className="self-start" variant="primary" onClick={onCreate}>Tambah</Button>
+            </div>
 
             <Card>
-                <StockInTable purchases={filteredStockIns} />
-                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredStockIns.length} dari {props.stockEntries.length} data</p>
-            </Card>
-
-            <Card id="purchase-history" title="Riwayat Pembelian">
-                <PurchaseTable purchases={props.stockEntries} csrf={props.csrf} onEdit={onEdit} />
+                <div className="mb-5 flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4 focus-within:border-primary">
+                    <svg className="size-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+                    <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari faktur, suplier, produk, atau barcode..." aria-label="Cari pembelian" />
+                </div>
+                <PurchaseTable purchases={filteredPurchases} csrf={props.csrf} onEdit={onEdit} />
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredPurchases.length} dari {props.stockEntries.length} data</p>
             </Card>
         </section>
     );
@@ -1416,7 +1492,7 @@ function PurchaseForm({ onBack, props }: { onBack: () => void; props: AppProps }
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Pembelian</h1>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Tambah Pembelian</h1>
                     <p className="text-sm text-muted-foreground">Catat pembelian produk, suplier, harga, diskon, dan subtotal.</p>
                 </div>
                 <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
@@ -1573,8 +1649,8 @@ function StockInForm({ onBack, props, stockIn }: { onBack: () => void; props: Ap
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Pembelian' : 'Tambah Stok'}</h1>
-                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui data pembelian produk, suplier, harga, diskon, dan subtotal.' : 'Tambahkan stok produk, harga beli, harga jual, dan barcode dalam satu form.'}</p>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Pembelian' : 'Tambah Pembelian'}</h1>
+                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui data pembelian produk, suplier, harga, diskon, dan subtotal.' : 'Tambahkan pembelian produk, suplier, harga, diskon, dan subtotal.'}</p>
                 </div>
                 <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
             </div>
@@ -1766,8 +1842,7 @@ function CategoryForm({ category, onBack, props }: { category?: Category; onBack
 }
 
 function Categories({ props, onCreate, onEdit }: { props: AppProps; onCreate: () => void; onEdit: (category: Category) => void }) {
-    const [sortKey, setSortKey] = useState<'name' | 'products'>('name');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'name' | 'products'>('name');
     const rows = props.categories.map((category) => {
         const products = props.products.filter((product) => product.kategori === category.nama_kategori);
 
@@ -1777,39 +1852,13 @@ function Categories({ props, onCreate, onEdit }: { props: AppProps; onCreate: ()
         };
     });
     const sortedRows = [...rows].sort((first, second) => {
-        const direction = sortDirection === 'asc' ? 1 : -1;
+        const value = sortKey === 'products'
+            ? compareNumber(first.productCount, second.productCount)
+            : compareText(first.nama_kategori, second.nama_kategori);
 
-        if (sortKey === 'products') {
-            return (first.productCount - second.productCount) * direction;
-        }
-
-        return first.nama_kategori.localeCompare(second.nama_kategori, 'id') * direction;
+        return withSortDirection(value, sortDirection);
     });
-    const toggleSort = (key: 'name' | 'products') => {
-        if (sortKey === key) {
-            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
-            return;
-        }
 
-        setSortKey(key);
-        setSortDirection('asc');
-    };
-    const sortIcon = (key: 'name' | 'products') => {
-        const active = sortKey === key;
-        const upActive = active && sortDirection === 'asc';
-        const downActive = active && sortDirection === 'desc';
-
-        return (
-            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
-                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 0 8 5H0L4 0Z" />
-                </svg>
-                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 5 0 0h8L4 5Z" />
-                </svg>
-            </span>
-        );
-    };
     return (
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1821,21 +1870,13 @@ function Categories({ props, onCreate, onEdit }: { props: AppProps; onCreate: ()
             </div>
 
             <Card>
-                <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+                <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
                     <table>
                         <thead>
                             <tr>
                                 <th className="w-20 !text-center">No</th>
-                                <th className="!text-center">
-                                    <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort('name')}>
-                                        Nama {sortIcon('name')}
-                                    </button>
-                                </th>
-                                <th className="w-56 !text-center">
-                                    <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort('products')}>
-                                        Jumlah Produk {sortIcon('products')}
-                                    </button>
-                                </th>
+                                <th className="!text-center"><SortableHeader column="name" label="Nama" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                                <th className="w-56 !text-center"><SortableHeader column="products" label="Jumlah Produk" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                                 <th className="w-52 !text-center">Aksi</th>
                             </tr>
                         </thead>
@@ -1921,45 +1962,18 @@ function SupplierForm({ supplier, onBack, props }: { supplier?: Supplier; onBack
 }
 
 function Suppliers({ props, onCreate, onEdit }: { props: AppProps; onCreate: () => void; onEdit: (supplier: Supplier) => void }) {
-    const [sortKey, setSortKey] = useState<'name' | 'phone' | 'email'>('name');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'name' | 'phone' | 'email' | 'address'>('name');
     const sortedRows = [...props.suppliers].sort((first, second) => {
-        const direction = sortDirection === 'asc' ? 1 : -1;
-        const firstValue = sortKey === 'phone' ? first.nomor_telepon ?? '' : sortKey === 'email' ? first.email ?? '' : first.nama;
-        const secondValue = sortKey === 'phone' ? second.nomor_telepon ?? '' : sortKey === 'email' ? second.email ?? '' : second.nama;
+        const value = sortKey === 'phone'
+            ? compareText(first.nomor_telepon, second.nomor_telepon)
+            : sortKey === 'email'
+                ? compareText(first.email, second.email)
+                : sortKey === 'address'
+                    ? compareText(first.alamat, second.alamat)
+                    : compareText(first.nama, second.nama);
 
-        return firstValue.localeCompare(secondValue, 'id') * direction;
+        return withSortDirection(value, sortDirection);
     });
-    const toggleSort = (key: 'name' | 'phone' | 'email') => {
-        if (sortKey === key) {
-            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
-            return;
-        }
-
-        setSortKey(key);
-        setSortDirection('asc');
-    };
-    const sortIcon = (key: 'name' | 'phone' | 'email') => {
-        const active = sortKey === key;
-        const upActive = active && sortDirection === 'asc';
-        const downActive = active && sortDirection === 'desc';
-
-        return (
-            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
-                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 0 8 5H0L4 0Z" />
-                </svg>
-                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 5 0 0h8L4 5Z" />
-                </svg>
-            </span>
-        );
-    };
-    const sortableHeader = (label: string, key: 'name' | 'phone' | 'email') => (
-        <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort(key)}>
-            {label} {sortIcon(key)}
-        </button>
-    );
 
     return (
         <section className="grid gap-6">
@@ -1972,15 +1986,15 @@ function Suppliers({ props, onCreate, onEdit }: { props: AppProps; onCreate: () 
             </div>
 
             <Card>
-                <DataTable className="[&_table]:min-w-[920px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+                <DataTable className="[&_table]:min-w-[920px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
                     <table>
                         <thead>
                             <tr>
                                 <th className="w-20 !text-center">No</th>
-                                <th className="!text-center">{sortableHeader('Nama', 'name')}</th>
-                                <th className="w-44 !text-center">{sortableHeader('Nomor Telepon', 'phone')}</th>
-                                <th className="w-56 !text-center">{sortableHeader('Email', 'email')}</th>
-                                <th className="!text-center">Alamat</th>
+                                <th className="!text-center"><SortableHeader column="name" label="Nama" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                                <th className="w-44 !text-center"><SortableHeader column="phone" label="Nomor Telepon" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                                <th className="w-56 !text-center"><SortableHeader column="email" label="Email" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                                <th className="!text-center"><SortableHeader column="address" label="Alamat" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                                 <th className="w-52 !text-center">Aksi</th>
                             </tr>
                         </thead>
@@ -2034,18 +2048,16 @@ function History({ props, onEditTransaction }: { props: AppProps; onEditTransact
 }
 
 function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (transaction: Transaction) => void }) {
-    const [query, setQuery] = useState('');
-    const [paymentStatus, setPaymentStatus] = useState('all');
-    const [paymentType, setPaymentType] = useState('all');
+    const [paymentStatus, setPaymentStatus] = useState(props.filters.payment_status ?? '');
+    const [paymentType, setPaymentType] = useState(props.filters.payment_type ?? '');
+    const startDate = props.filters.start_date ?? todayInputDate();
+    const endDate = props.filters.end_date ?? todayInputDate();
     const visibleTransactions = props.historyTransactions.filter((transaction) => transaction.status !== 'void');
     const filteredTransactions = visibleTransactions.filter((transaction) => {
-        const keyword = query.trim().toLowerCase();
-        const detailText = transaction.details.map((detail) => detail.product).join(' ');
-        const matchesKeyword = !keyword || `${transaction.kode_transaksi} ${transaction.cashier} ${transaction.customer_name ?? ''} ${detailText}`.toLowerCase().includes(keyword);
-        const matchesStatus = paymentStatus === 'all' || transaction.payment_status === paymentStatus;
-        const matchesType = paymentType === 'all' || transaction.payment_type === paymentType;
+        const matchesStatus = !paymentStatus || transaction.payment_status === paymentStatus;
+        const matchesType = !paymentType || transaction.payment_type === paymentType;
 
-        return matchesKeyword && matchesStatus && matchesType;
+        return matchesStatus && matchesType;
     });
 
     return (
@@ -2053,21 +2065,22 @@ function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (trans
             <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Riwayat Transaksi</h1><p className="text-sm text-muted-foreground">Daftar transaksi berdasarkan akses akun</p></div>
 
             <Card>
-                <div className="mb-5 grid gap-3 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
-                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} aria-label="Filter status pembayaran">
-                        <option value="all">Semua status</option>
+                <form className="mb-5 grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_180px]" method="GET">
+                    <input type="hidden" name="page" value="transaction-history" />
+                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={startDate} aria-label="Tanggal mulai" />
+                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={endDate} aria-label="Tanggal akhir" />
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_status" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} aria-label="Filter status pembayaran">
+                        <option value="">Semua status</option>
                         <option value="paid">Lunas</option>
                         <option value="pending">Belum Bayar</option>
                     </select>
-                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={paymentType} onChange={(event) => setPaymentType(event.target.value)} aria-label="Filter metode pembayaran">
-                        <option value="all">Semua metode</option>
+                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value)} aria-label="Filter metode pembayaran">
+                        <option value="">Semua metode</option>
                         <option value="cash">Tunai</option>
                         <option value="transfer">Transfer</option>
                     </select>
-                    <label className="relative flex h-10 items-center">
-                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari transaksi, kasir, atau pelanggan..." />
-                    </label>
-                </div>
+                    <Button className="h-10 w-full" type="submit">Filter</Button>
+                </form>
                 <TransactionTable transactions={filteredTransactions} showCashier={props.user.isAdmin} csrf={props.csrf} onEdit={onEdit} />
                 <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredTransactions.length} dari {visibleTransactions.length} transaksi</p>
             </Card>
@@ -2198,167 +2211,728 @@ function TransactionEditForm({ onBack, props, transaction }: { onBack: () => voi
     );
 }
 
-function Operations({ props }: { props: AppProps }) {
-    if (!props.user.isAdmin) {
-        return <OperationalPanels props={props} />;
-    }
-
-    const [category, setCategory] = useState('all');
+function Operations({ onCreate, onEdit, props }: { props: AppProps; onCreate?: () => void; onEdit?: (expense: Expense) => void }) {
     const [query, setQuery] = useState('');
-    const [showExpenseForm, setShowExpenseForm] = useState(false);
-    const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
-    const editingExpense = props.expenses.find((expense) => expense.id === editingExpenseId) ?? null;
-    const categories = Array.from(new Set(props.expenses.map((expense) => expense.category)));
     const filteredExpenses = props.expenses.filter((expense) => {
         const keyword = query.trim().toLowerCase();
-        const matchesCategory = category === 'all' || expense.category === category;
-        const matchesKeyword = !keyword || `${expense.category} ${expense.description} ${expense.user}`.toLowerCase().includes(keyword);
+        const matchesKeyword = !keyword || `${expense.uraian} ${expense.notes ?? ''} ${expense.user}`.toLowerCase().includes(keyword);
 
-        return matchesCategory && matchesKeyword;
+        return matchesKeyword;
     });
     const totalExpense = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const startDate = props.filters.start_date ?? todayInputDate();
+    const endDate = props.filters.end_date ?? todayInputDate();
 
     return (
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Pengeluaran Toko</h1><p className="text-sm text-muted-foreground">Catat dan kelola pengeluaran operasional</p></div>
-                <div className="flex flex-wrap gap-2">{props.routes.expensesPrint && <a className="inline-flex h-10 items-center justify-center rounded-md bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.expensesPrint} target="_blank">Cetak Pengeluaran</a>}<Button variant="primary" onClick={() => { setEditingExpenseId(null); setShowExpenseForm((value) => !value); }}>{showExpenseForm ? 'Tutup Formulir' : 'Tambah Pengeluaran'}</Button></div>
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Pengeluaran</h1>
+                    <p className="text-sm text-muted-foreground">Kelola uraian, volume, harga, jumlah, dan keterangan pengeluaran.</p>
+                </div>
+                {props.user.isAdmin && <div className="flex flex-wrap gap-2">{props.routes.expensesPrint && <a className="inline-flex h-10 items-center justify-center rounded-sm bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.expensesPrint} target="_blank">Cetak</a>}<Button variant="primary" onClick={onCreate}>Tambah</Button></div>}
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+                <MetricCard label="Total Pengeluaran" value={totalExpense} unit="Rp" />
+                <MetricCard label="Jumlah Pengeluaran" value={filteredExpenses.length} unit="Data" />
             </div>
 
             <Card>
-                <div className="mb-5 flex flex-col gap-3 rounded-md border border-error/30 bg-lighterror px-5 py-4 text-error sm:flex-row sm:items-center sm:justify-between"><div className="grid gap-1"><span className="text-sm font-semibold">Total pengeluaran</span><strong className="text-2xl font-semibold leading-8">{rupiah(totalExpense)}</strong></div><b className="text-sm">{filteredExpenses.length} pengeluaran tercatat</b></div>
-                {showExpenseForm && <Card className="mb-5 border-ld bg-background" title="Tambah Pengeluaran">
-                    <FormGrid method="POST" action={props.routes.expensesStore ?? ''} encType="multipart/form-data">
-                        <input type="hidden" name="_token" value={props.csrf} />
-                        <Field label="Tanggal"><input name="spent_at" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></Field>
-                        <Field label="Kategori"><select name="category" required><option value="Listrik">Listrik</option><option value="Gaji">Gaji</option><option value="Perlengkapan">Perlengkapan</option><option value="Sewa">Sewa</option><option value="Operasional">Operasional</option></select></Field>
-                        <Field label="Nominal"><input name="amount" type="number" min={0} required /></Field>
-                        <Field label="Bukti"><input name="attachment" type="file" accept=".jpg,.jpeg,.png,.pdf" /></Field>
-                        <Field label="Deskripsi" className="xl:col-span-4"><input name="description" placeholder="Contoh: bayar listrik bulan ini" required /></Field>
-                        <Button variant="primary" type="submit">Simpan Pengeluaran</Button>
-                    </FormGrid>
-                </Card>}
-                {editingExpense && <Card className="mb-5 border-ld bg-background" title="Ubah Pengeluaran">
-                    <FormGrid method="POST" action={editingExpense.update_url ?? ''} encType="multipart/form-data">
-                        <input type="hidden" name="_token" value={props.csrf} />
-                        <input type="hidden" name="_method" value="PUT" />
-                        <Field label="Tanggal"><input name="spent_at" type="date" defaultValue={editingExpense.spent_at_input} required /></Field>
-                        <Field label="Kategori"><select name="category" defaultValue={editingExpense.category} required><option value="Listrik">Listrik</option><option value="Gaji">Gaji</option><option value="Perlengkapan">Perlengkapan</option><option value="Sewa">Sewa</option><option value="Operasional">Operasional</option></select></Field>
-                        <Field label="Nominal"><input name="amount" type="number" min={0} defaultValue={editingExpense.amount} required /></Field>
-                        <Field label="Ganti Bukti"><input name="attachment" type="file" accept=".jpg,.jpeg,.png,.pdf" /></Field>
-                        <Field label="Deskripsi" className="xl:col-span-4"><input name="description" defaultValue={editingExpense.description} required /></Field>
-                        <Button variant="primary" type="submit">Update Pengeluaran</Button>
-                        <Button onClick={() => setEditingExpenseId(null)}>Batal</Button>
-                    </FormGrid>
-                </Card>}
-                <div className="mb-5 grid gap-3 xl:grid-cols-[180px_minmax(360px,520px)_minmax(0,1fr)]">
-                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori pengeluaran">
-                        <option value="all">Semua kategori</option>
-                        {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                    <form method="GET" action={props.routes.dashboard ?? ''} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <div className="mb-5 grid gap-3 xl:grid-cols-[minmax(460px,620px)_minmax(320px,1fr)]">
+                    <form method="GET" action={props.routes.dashboard ?? ''} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
                         <input type="hidden" name="page" value="operations" />
-                        <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={props.filters.start_date ?? ''} aria-label="Tanggal mulai" />
-                        <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={props.filters.end_date ?? ''} aria-label="Tanggal akhir" />
-                        <Button variant="soft" type="submit">Filter periode</Button>
+                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={startDate} aria-label="Tanggal mulai" />
+                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={endDate} aria-label="Tanggal akhir" />
+                        <Button className="h-10 w-full sm:w-auto" variant="soft" type="submit">Filter</Button>
                     </form>
-                    <label className="relative flex h-10 items-center">
-                        <span className="pointer-events-none absolute left-4 text-sm text-muted-foreground" aria-hidden="true">Cari</span>
-                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 ps-[72px] text-sm text-foreground outline-none focus:border-primary" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari deskripsi pengeluaran..." />
+                    <label className="flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4 focus-within:border-primary">
+                        <svg className="size-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+                        <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari uraian atau keterangan..." aria-label="Cari pengeluaran" />
                     </label>
                 </div>
-                <ExpenseTable expenses={filteredExpenses} csrf={props.csrf} onEdit={(expense) => { setShowExpenseForm(false); setEditingExpenseId(expense.id); }} />
+                <ExpenseTable expenses={filteredExpenses} csrf={props.csrf} showActions={props.user.isAdmin} onEdit={(expense) => onEdit?.(expense)} />
                 <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredExpenses.length} dari {props.expenses.length} data</p>
             </Card>
+        </section>
+    );
+}
 
-            <OperationalPanels props={props} compact />
+function ExpenseForm({ expense, onBack, props }: { expense?: Expense; onBack: () => void; props: AppProps }) {
+    const isEdit = Boolean(expense);
+    const [volume, setVolume] = useState(expense ? String(Number(expense.volume)) : '1');
+    const [price, setPrice] = useState(expense?.price ? formatThousands(expense.price) : '');
+    const priceValue = Number(numericOnly(price));
+    const amount = Math.round(Math.max(0, Number(String(volume).replace(',', '.')) || 0) * priceValue);
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{isEdit ? 'Edit Pengeluaran' : 'Tambah Pengeluaran'}</h1>
+                    <p className="text-sm text-muted-foreground">{isEdit ? 'Perbarui detail pengeluaran operasional.' : 'Tambahkan pengeluaran operasional sesuai rincian nota.'}</p>
+                </div>
+                <Button className="self-start" variant="soft" onClick={onBack}>Kembali</Button>
+            </div>
+
+            <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={isEdit ? expense?.update_url ?? '' : props.routes.expensesStore ?? ''} className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    {isEdit && <input type="hidden" name="_method" value="PUT" />}
+                    <input type="hidden" name="price" value={priceValue} />
+                    <input type="hidden" name="amount" value={amount} />
+                    <CanvasFormRow label="Tanggal" required>
+                        <input name="spent_at" type="date" defaultValue={expense?.spent_at_input ?? todayInputDate()} required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Uraian" required>
+                        <input name="uraian" defaultValue={expense?.uraian ?? ''} placeholder="Masukkan uraian" required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Vol" required>
+                        <input name="volume" type="number" min={0} step="0.01" value={volume} onChange={(event) => setVolume(event.target.value)} required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Satuan" required>
+                        <input name="unit" defaultValue={expense?.unit ?? ''} placeholder="Contoh: pcs" required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Harga" required>
+                        <input inputMode="numeric" value={price} onChange={(event) => setPrice(formatThousands(event.target.value))} placeholder="Masukkan harga" required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Jumlah">
+                        <input value={formatThousands(amount)} readOnly />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Keterangan">
+                        <textarea name="notes" defaultValue={expense?.notes ?? ''} placeholder="Tambahkan keterangan jika ada" />
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="soft" onClick={onBack}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>
         </section>
     );
 }
 
 function ReportPage({ props }: { props: AppProps }) {
-    const [tab, setTab] = useState<'income' | 'expense' | 'comparison'>('income');
-    const reportTabs = [
-        { id: 'income' as const, label: 'Pendapatan' },
-        { id: 'expense' as const, label: 'Pengeluaran' },
-        { id: 'comparison' as const, label: 'Perbandingan' },
+    const selectedPeriod = normalizePeriodMonth(props.filters.period_month);
+    const expenseTotal = Number(props.reportStats.expense_total ?? props.expenses.reduce((sum, expense) => sum + expense.amount, 0));
+    const incomeTotal = Number(props.reportStats.income ?? 0);
+    const capitalTotal = Number(props.reportStats.capital ?? 0);
+    const grossProfit = Number(props.reportStats.gross_profit ?? incomeTotal - capitalTotal);
+    const netProfit = Number(props.reportStats.net_profit ?? grossProfit - expenseTotal);
+    const grossMargin = incomeTotal > 0 ? Number(((grossProfit / incomeTotal) * 100).toFixed(1)) : 0;
+    const transactionCount = Number(props.reportStats.transactions ?? 0);
+    const expenseCount = Number(props.reportStats.expense_count ?? props.expenses.length);
+    const cashIncome = Number(props.reportStats.cash_income ?? 0);
+    const transferIncome = Number(props.reportStats.transfer_income ?? 0);
+    const pendingIncome = Number(props.reportStats.pending_income ?? 0);
+    const topProducts = props.monthlyProductSales.filter((product) => product.qty > 0).slice(0, 5);
+    const topExpenses = [...props.expenses].sort((first, second) => second.amount - first.amount).slice(0, 3);
+    const biggestExpense = topExpenses[0] ?? null;
+    const expenseRatio = incomeTotal > 0 ? Number(((expenseTotal / incomeTotal) * 100).toFixed(1)) : 0;
+    const cashFlowAfterExpense = incomeTotal - expenseTotal;
+    const bestProduct = topProducts[0] ?? null;
+    const insights = [
+        netProfit >= 0 ? `Laba bersih periode ini positif sebesar ${rupiah(netProfit)}.` : `Laba bersih periode ini minus sebesar ${rupiah(Math.abs(netProfit))}.`,
+        bestProduct ? `Produk paling laris: ${bestProduct.name} (${bestProduct.qty.toLocaleString('id-ID')} terjual).` : 'Belum ada produk terjual pada periode ini.',
+        pendingIncome > 0 ? `Piutang masih ${rupiah(pendingIncome)} dan perlu ditagih.` : 'Tidak ada piutang pada periode ini.',
+        biggestExpense ? `Pengeluaran terbesar: ${biggestExpense.uraian} sebesar ${rupiah(biggestExpense.amount)}.` : 'Belum ada pengeluaran pada periode ini.',
     ];
-    const expenseTotal = props.expenses.reduce((sum, expense) => sum + expense.amount, 0);
-    const grossProfit = Number(props.reportStats.income ?? 0) - expenseTotal;
-    const paidTransactions = props.historyTransactions.filter((transaction) => transaction.status !== 'void' && transaction.payment_status === 'paid');
-    const revenueByDate = paidTransactions.reduce<Record<string, number>>((carry, transaction) => {
-        const label = transaction.created_at.split(' ')[0] || 'Tanggal';
-        carry[label] = (carry[label] ?? 0) + transaction.total;
-
-        return carry;
-    }, {});
-    const revenueRows = Object.entries(revenueByDate).reverse().slice(-6).map(([label, value]) => ({ label, value }));
-    const methodRows = [
-        { label: 'Tunai', value: paidTransactions.filter((transaction) => transaction.payment_type === 'cash').length, color: '#22c55e' },
-        { label: 'Transfer', value: paidTransactions.filter((transaction) => transaction.payment_type === 'transfer').length, color: '#0ea5e9' },
-        { label: 'Piutang', value: props.historyTransactions.filter((transaction) => transaction.payment_status === 'pending').length, color: '#f59e0b' },
-    ];
-
     return (
         <section className="grid gap-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Laporan</h1><p className="text-sm text-muted-foreground">Analisa keuangan dan performa toko</p></div>
-                {props.routes.transactionsExportPdf && <a className="inline-flex h-10 items-center justify-center rounded-md bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.transactionsExportPdf}>Cetak Laporan</a>}
+                <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+                    <form className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center" method="GET" action={props.routes.dashboard ?? ''}>
+                        <input type="hidden" name="page" value="history" />
+                        <label className="flex items-center gap-3">
+                            <span className="text-sm font-semibold text-link dark:text-white">Periode</span>
+                            <input
+                                className="h-10 w-52 rounded-sm border border-ld bg-transparent px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+                                name="period_month"
+                                type="month"
+                                defaultValue={selectedPeriod}
+                            />
+                        </label>
+                        <Button type="submit">Terapkan</Button>
+                    </form>
+                    {props.routes.transactionsExportPdf && <a className="inline-flex h-10 items-center justify-center rounded-md bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.transactionsExportPdf}>Cetak Laporan</a>}
+                </div>
             </div>
 
-            <Card>
-                <form method="GET" action={props.routes.dashboard ?? ''} className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_180px_180px_auto]">
-                    <input type="hidden" name="page" value="history" />
-                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={props.filters.start_date ?? ''} aria-label="Tanggal mulai" />
-                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={props.filters.end_date ?? ''} aria-label="Tanggal akhir" />
-                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_status" defaultValue={props.filters.payment_status ?? ''} aria-label="Status pembayaran">
-                        <option value="">Semua status</option>
-                        <option value="paid">Lunas</option>
-                        <option value="pending">Belum Bayar</option>
-                    </select>
-                    <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_type" defaultValue={props.filters.payment_type ?? ''} aria-label="Metode pembayaran">
-                        <option value="">Semua metode</option>
-                        <option value="cash">Tunai</option>
-                        <option value="transfer">Transfer</option>
-                    </select>
-                    <Button variant="primary" type="submit">Filter periode</Button>
-                </form>
-            </Card>
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                <Card className="overflow-hidden p-0">
+                    <div className="px-6 pb-4 pt-5">
+                        <span className="text-xs font-bold uppercase tracking-wide text-primary">Pemasukan</span>
+                        <div className="mt-3">
+                            <div>
+                                <strong className="block text-3xl font-semibold leading-tight text-foreground">{rupiah(incomeTotal)}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="grid px-6 pb-5 pt-2">
+                        <div className="py-3">
+                            <div className="flex items-center justify-between gap-4 rounded-md border border-ld bg-card px-4 py-3">
+                                <span className="text-sm font-semibold text-muted-foreground">Jumlah Transaksi</span>
+                                <strong className="whitespace-nowrap text-base font-semibold text-foreground">{transactionCount.toLocaleString('id-ID')} transaksi</strong>
+                            </div>
+                        </div>
+                        <div className="py-5">
+                            <IncomeDonutChart rows={[
+                                { label: 'Cash', value: cashIncome, color: '#13deb9', tone: 'success' },
+                                { label: 'Transfer', value: transferIncome, color: '#5d87ff', tone: 'primary' },
+                                { label: 'Piutang', value: pendingIncome, color: '#f6b51e', tone: 'warning' },
+                            ]} />
+                        </div>
+                    </div>
+                </Card>
+
+                <Card className="overflow-hidden p-0">
+                    <div className="px-6 pb-4 pt-5">
+                        <span className="text-xs font-bold uppercase tracking-wide text-error">Pengeluaran</span>
+                        <div className="mt-3">
+                            <strong className="block text-3xl font-semibold leading-tight text-error">{rupiah(expenseTotal)}</strong>
+                        </div>
+                    </div>
+                    <div className="grid gap-5 px-6 py-5">
+                        <div className="grid gap-3">
+                            <div className="flex items-center justify-between gap-4 rounded-md border border-ld bg-card px-4 py-3">
+                                <span className="text-sm font-semibold text-muted-foreground">Jumlah Pengeluaran</span>
+                                <strong className="whitespace-nowrap text-base font-semibold text-foreground">{expenseCount.toLocaleString('id-ID')} data</strong>
+                            </div>
+                        </div>
+
+                        <div className="rounded-md border border-ld bg-card px-4 py-4">
+                            <div className="flex items-center justify-between gap-4">
+                                <span className="text-sm font-semibold text-muted-foreground">Rasio biaya dari pemasukan</span>
+                                <strong className="text-sm font-semibold text-warningemphasis">{expenseRatio}%</strong>
+                            </div>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                                <span className="block h-full rounded-full bg-warning" style={{ width: `${Math.min(100, Math.max(4, expenseRatio))}%` }} />
+                            </div>
+                            <div className="mt-4 flex items-center justify-between gap-4 border-t border-ld pt-3">
+                                <span className="text-sm font-semibold text-muted-foreground">Sisa pemasukan</span>
+                                <strong className={`text-sm font-semibold ${cashFlowAfterExpense >= 0 ? 'text-successemphasis' : 'text-error'}`}>{rupiah(cashFlowAfterExpense)}</strong>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Top Pengeluaran</span>
+                            {topExpenses.length ? topExpenses.map((expense, index) => (
+                                <div className="flex items-center justify-between gap-3 rounded-md border border-ld bg-card px-4 py-3" key={expense.id}>
+                                    <span className="min-w-0 truncate text-sm font-semibold text-muted-foreground">{index + 1}. {expense.uraian}</span>
+                                    <strong className="whitespace-nowrap text-sm text-error">{rupiah(expense.amount)}</strong>
+                                </div>
+                            )) : <div className="rounded-md border border-dashed border-ld px-3 py-4 text-center text-sm font-semibold text-muted-foreground">Belum ada pengeluaran.</div>}
+                        </div>
+                    </div>
+                </Card>
+            </div>
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <ReportMetric label="Total transaksi" value={props.reportStats.transactions} tone="info" />
-                <ReportMetric label="Total pendapatan" value={rupiah(props.reportStats.income)} tone="primary" />
-                <ReportMetric label="Total pengeluaran" value={rupiah(expenseTotal)} tone="error" />
-                <ReportMetric label="Laba kotor" value={rupiah(grossProfit)} tone="success" />
+                <ReportMiniMetric caption="Biaya produk terjual" icon="wallet" label="Modal" subtitle="HPP periode" value={rupiah(capitalTotal)} tone="error" />
+                <ReportMiniMetric caption={`${grossMargin}% dari pemasukan`} icon="chart" label="Laba Kotor" subtitle="Sebelum pengeluaran" value={rupiah(grossProfit)} tone="success" />
+                <ReportMiniMetric caption={netProfit >= 0 ? 'Sisa setelah biaya' : 'Perlu tekan biaya'} featured icon="report" label="Laba Bersih" subtitle="Setelah pengeluaran" value={rupiah(netProfit)} tone={netProfit >= 0 ? 'success' : 'error'} />
+                <ReportMiniMetric caption={grossMargin >= 20 ? 'Margin sehat' : 'Margin perlu dijaga'} icon="chart" label="Margin" subtitle="Laba kotor / pemasukan" value={`${grossMargin}%`} tone="primary" progress={grossMargin} />
             </div>
 
-            <Tabs active={tab} items={reportTabs} onChange={setTab} />
+            <Card className="bg-background" title="Grafik Keuangan Periode">
+                <FinancialTrendChart points={props.financialChart ?? []} />
+            </Card>
 
-            {tab === 'income' && <Card className="bg-background" title="Pendapatan Periode"><ReportLineChart points={revenueRows.length ? revenueRows : props.salesChart.map((point) => ({ label: point.label, value: point.count }))} /></Card>}
-            {tab === 'expense' && <Card className="bg-background" title="Pengeluaran Operasional"><ExpenseCategoryChart expenses={props.expenses} /></Card>}
-            {tab === 'comparison' && <Card className="bg-background" title="Pendapatan vs Pengeluaran"><ComparisonBars income={Number(props.reportStats.income ?? 0)} expense={expenseTotal} /></Card>}
-
-            <div className="grid gap-5 xl:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
-                <Card title="Metode Pembayaran"><PaymentDonut rows={methodRows} /></Card>
-                <Card title="Detail Transaksi"><TransactionTable transactions={props.historyTransactions.slice(0, 8)} showCashier={props.user.isAdmin} csrf={props.csrf} /></Card>
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+                <Card className="bg-background" title="Produk Terlaris">
+                    <TopProductsList products={topProducts} />
+                </Card>
+                <Card className="bg-background" title="Kesimpulan">
+                    <div className="grid gap-3">
+                        {insights.map((insight) => <div className="rounded-md border border-ld bg-card px-4 py-3 text-sm font-semibold text-muted-foreground" key={insight}>{insight}</div>)}
+                    </div>
+                </Card>
             </div>
         </section>
     );
 }
 
-function ReportMetric({ label, tone, value }: { label: string; tone: 'info' | 'primary' | 'error' | 'success'; value: React.ReactNode }) {
+function ReportStatRow({ label, tone = 'default', value }: { label: string; tone?: 'default' | 'primary' | 'success' | 'warning' | 'error'; value: React.ReactNode }) {
     const toneClass = {
-        info: 'bg-lightinfo text-info',
-        primary: 'bg-lightprimary text-primary',
-        error: 'bg-lighterror text-error',
-        success: 'bg-lightsuccess text-successemphasis',
+        default: 'text-foreground',
+        primary: 'text-primary',
+        success: 'text-successemphasis',
+        warning: 'text-warningemphasis',
+        error: 'text-error',
     }[tone];
 
     return (
-        <article className={`grid min-h-28 content-between rounded-md border border-ld p-5 ${toneClass}`}>
-            <span className="text-sm font-bold leading-5">{label}</span>
-            <strong className="text-2xl font-semibold leading-8 text-foreground">{value}</strong>
+        <div className="flex items-center justify-between gap-4 py-3 text-sm">
+            <span className="font-semibold text-muted-foreground">{label}</span>
+            <strong className={`text-right text-base font-semibold ${toneClass}`}>{value}</strong>
+        </div>
+    );
+}
+
+function IncomeDonutChart({ rows }: { rows: Array<{ label: string; value: number; color: string; tone: 'primary' | 'success' | 'warning' }> }) {
+    const total = rows.reduce((sum, row) => sum + Math.max(0, row.value), 0);
+    let cursor = 0;
+    const stops = total > 0
+        ? rows.map((row) => {
+            const start = cursor;
+            cursor += (Math.max(0, row.value) / total) * 360;
+
+            return `${row.color} ${start}deg ${cursor}deg`;
+        }).join(', ')
+        : '#334155 0deg 360deg';
+    const toneClass = {
+        primary: 'text-primary',
+        success: 'text-successemphasis',
+        warning: 'text-warningemphasis',
+    };
+
+    return (
+        <div className="grid gap-5 md:grid-cols-[180px_minmax(0,1fr)] md:items-center">
+            <div className="mx-auto grid size-44 place-items-center rounded-full border border-ld shadow-sm" style={{ background: `conic-gradient(${stops})` }}>
+                <div className="grid size-28 place-items-center rounded-full border border-ld bg-card text-center">
+                    <div>
+                        <span className="block text-xs font-bold uppercase text-muted-foreground">Total</span>
+                        <strong className="mt-1 block text-lg font-semibold text-foreground">{rupiahCompact(total)}</strong>
+                    </div>
+                </div>
+            </div>
+            <div className="grid gap-3">
+                {rows.map((row) => {
+                    const percent = total > 0 ? Math.round((Math.max(0, row.value) / total) * 100) : 0;
+
+                    return (
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-ld bg-card px-3 py-2" key={row.label}>
+                            <span className="size-3 rounded-full" style={{ backgroundColor: row.color }} />
+                            <div className="min-w-0">
+                                <strong className="block text-sm text-foreground">{row.label}</strong>
+                                <span className="text-xs font-semibold text-muted-foreground">{percent}% dari pemasukan</span>
+                            </div>
+                            <strong className={`text-right text-sm font-semibold ${toneClass[row.tone]}`}>{rupiah(row.value)}</strong>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+function ReportMiniMetric({
+    caption,
+    featured = false,
+    icon,
+    label,
+    progress,
+    subtitle,
+    tone,
+    value,
+}: {
+    caption: string;
+    featured?: boolean;
+    icon: string;
+    label: string;
+    progress?: number;
+    subtitle: string;
+    tone: 'primary' | 'success' | 'error';
+    value: React.ReactNode;
+}) {
+    const toneStyle = {
+        primary: {
+            backgroundImage: 'linear-gradient(135deg, rgba(93, 135, 255, 0.16), rgba(93, 135, 255, 0.03) 45%, transparent)',
+            patternColor: 'rgba(93, 135, 255, 0.22)',
+        },
+        success: {
+            backgroundImage: 'linear-gradient(135deg, rgba(19, 222, 185, 0.15), rgba(19, 222, 185, 0.03) 45%, transparent)',
+            patternColor: 'rgba(19, 222, 185, 0.22)',
+        },
+        error: {
+            backgroundImage: 'linear-gradient(135deg, rgba(250, 91, 93, 0.15), rgba(250, 91, 93, 0.03) 45%, transparent)',
+            patternColor: 'rgba(250, 91, 93, 0.22)',
+        },
+    }[tone];
+    const toneClass = {
+        primary: 'text-primary',
+        success: 'text-successemphasis',
+        error: 'text-error',
+    }[tone];
+    const accentClass = {
+        primary: 'bg-primary',
+        success: 'bg-success',
+        error: 'bg-error',
+    }[tone];
+    const iconClass = {
+        primary: 'bg-lightprimary text-primary',
+        success: 'bg-lightsuccess text-successemphasis',
+        error: 'bg-lighterror text-error',
+    }[tone];
+    const pillClass = {
+        primary: 'bg-lightprimary text-primary',
+        success: 'bg-lightsuccess text-successemphasis',
+        error: 'bg-lighterror text-error',
+    }[tone];
+    const progressWidth = typeof progress === 'number' ? Math.min(100, Math.max(0, progress)) : null;
+
+    return (
+        <article className={`group relative grid min-h-40 overflow-hidden rounded-md border bg-card p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${featured ? 'border-primary/60 shadow-primary/10' : 'border-ld'}`} style={{ backgroundImage: toneStyle.backgroundImage }}>
+            <span className={`absolute inset-x-0 top-0 h-1 ${accentClass}`} aria-hidden="true" />
+            <span
+                className="pointer-events-none absolute right-5 top-5 h-20 w-20 opacity-25"
+                style={{
+                    backgroundImage: `linear-gradient(${toneStyle.patternColor} 1px, transparent 1px), linear-gradient(90deg, ${toneStyle.patternColor} 1px, transparent 1px)`,
+                    backgroundSize: '14px 14px',
+                }}
+                aria-hidden="true"
+            />
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-bold uppercase tracking-wide ${pillClass}`}>{label}</span>
+                    <span className="mt-1 block text-xs font-semibold text-muted-foreground">{subtitle}</span>
+                </div>
+                <span className={`relative grid size-11 shrink-0 place-items-center rounded-md ${iconClass} shadow-sm [&_svg]:size-5`}>
+                    <NavIcon name={icon} />
+                </span>
+            </div>
+            <div className="relative mt-6">
+                <strong className={`block break-words text-[1.75rem] font-semibold leading-9 ${toneClass}`}>{value}</strong>
+                <div className="mt-5 flex min-h-10 items-center justify-between gap-3 rounded-md border border-ld bg-background/45 px-3 py-2">
+                    <span className="text-xs font-semibold text-muted-foreground">{caption}</span>
+                    {progressWidth === null && <span className={`size-2.5 shrink-0 rounded-full ${accentClass}`} aria-hidden="true" />}
+                    {progressWidth !== null && <strong className={`shrink-0 text-xs font-bold ${toneClass}`}>{progressWidth}%</strong>}
+                </div>
+                {progressWidth !== null && (
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                        <span className={`block h-full rounded-full ${accentClass}`} style={{ width: `${progressWidth}%` }} />
+                    </div>
+                )}
+            </div>
         </article>
+    );
+}
+
+function TopProductsList({ products }: { products: ProductSalesPoint[] }) {
+    const maxQty = Math.max(...products.map((product) => product.qty), 1);
+
+    if (!products.length) {
+        return <p className="text-sm font-medium text-muted-foreground">Belum ada produk terjual pada periode ini.</p>;
+    }
+
+    return (
+        <div className="grid gap-3">
+            {products.map((product, index) => (
+                <div className="grid gap-3 rounded-md border border-ld bg-card px-4 py-3" key={product.name}>
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                            <span className="text-xs font-bold uppercase text-primary">#{index + 1}</span>
+                            <strong className="mt-1 block truncate text-sm text-foreground">{product.name}</strong>
+                        </div>
+                        <div className="text-right">
+                            <strong className="block text-sm text-foreground">{rupiah(product.total)}</strong>
+                            <span className="text-xs font-semibold text-muted-foreground">{product.qty.toLocaleString('id-ID')} terjual</span>
+                        </div>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                        <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(8, (product.qty / maxQty) * 100)}%` }} />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function FinancialTrendChart({ points }: { points: FinancialChartPoint[] }) {
+    const safePoints = points.length ? points : [{ label: '-', income: 0, expense: 0, capital: 0, gross_profit: 0, net_profit: 0 }];
+    const id = useId().replace(/:/g, '');
+    const incomeGradientId = `financial-income-${id}`;
+    const profitGradientId = `financial-profit-${id}`;
+    const chartSeries: Array<{ key: keyof Omit<FinancialChartPoint, 'label'>; label: string; color: string; dash?: string; muted?: boolean }> = [
+        { key: 'income', label: 'Pemasukan', color: '#5d87ff' },
+        { key: 'expense', label: 'Pengeluaran', color: '#fa5a5c', dash: '8 8', muted: true },
+        { key: 'capital', label: 'Modal', color: '#f6b51e', dash: '4 7', muted: true },
+        { key: 'gross_profit', label: 'Laba Kotor', color: '#13deb9' },
+        { key: 'net_profit', label: 'Laba Bersih', color: '#38bdf8' },
+    ];
+    const allValues = chartSeries.flatMap((series) => safePoints.map((point) => Number(point[series.key] ?? 0)));
+    const high = Math.max(...allValues, 0, 1);
+    const low = Math.min(...allValues, 0);
+    const range = Math.max(high - low, 1);
+    const width = 760;
+    const heightSvg = 330;
+    const left = 70;
+    const right = 24;
+    const top = 34;
+    const bottom = 270;
+    const height = bottom - top;
+    const xFor = (index: number) => safePoints.length === 1 ? left + ((width - left - right) / 2) : left + (index / (safePoints.length - 1)) * (width - left - right);
+    const yFor = (value: number) => bottom - ((value - low) / range) * height;
+    const coordinatesFor = (key: keyof Omit<FinancialChartPoint, 'label'>) => safePoints.map((point, index) => ({
+        label: point.label,
+        value: Number(point[key] ?? 0),
+        x: xFor(index),
+        y: yFor(Number(point[key] ?? 0)),
+    }));
+    const smoothPath = (coordinates: Array<{ x: number; y: number }>) => coordinates.reduce((path, point, index) => {
+        if (index === 0) {
+            return `M ${point.x} ${point.y}`;
+        }
+
+        const previous = coordinates[index - 1];
+        const midpoint = (previous.x + point.x) / 2;
+
+        return `${path} C ${midpoint} ${previous.y}, ${midpoint} ${point.y}, ${point.x} ${point.y}`;
+    }, '');
+    const baselineY = yFor(0);
+    const incomeCoordinates = coordinatesFor('income');
+    const netProfitCoordinates = coordinatesFor('net_profit');
+    const incomePath = smoothPath(incomeCoordinates);
+    const netProfitPath = smoothPath(netProfitCoordinates);
+    const incomeArea = `${incomePath} L ${xFor(safePoints.length - 1)} ${baselineY} L ${xFor(0)} ${baselineY} Z`;
+    const profitArea = `${netProfitPath} L ${xFor(safePoints.length - 1)} ${baselineY} L ${xFor(0)} ${baselineY} Z`;
+    const totals = chartSeries.map((series) => ({
+        ...series,
+        value: safePoints.reduce((sum, point) => sum + Number(point[series.key] ?? 0), 0),
+    }));
+    const tickValues = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.max(0, high * ratio));
+    const axisLabelStep = Math.max(1, Math.ceil(safePoints.length / 7));
+    const axisLabels = safePoints
+        .map((point, index) => ({ ...point, index }))
+        .filter((_, index) => index === 0 || index === safePoints.length - 1 || index % axisLabelStep === 0);
+    const activePointIndexes = safePoints
+        .map((point, index) => ({ index, hasValue: chartSeries.some((series) => Number(point[series.key] ?? 0) !== 0) }))
+        .filter((point) => point.hasValue)
+        .map((point) => point.index);
+
+    return (
+        <div className="grid gap-5">
+            <div className="flex flex-wrap gap-2">
+                {chartSeries.map((series) => (
+                    <span className="inline-flex h-8 items-center gap-2 rounded-md bg-background/50 px-3 text-xs font-bold text-muted-foreground" key={series.key}>
+                        <i className="h-1.5 w-5 rounded-full" style={{ backgroundColor: series.color }} />
+                        {series.label}
+                    </span>
+                ))}
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="overflow-hidden rounded-md border border-ld bg-background/35 p-4">
+                    <svg className="h-[360px] w-full overflow-visible" viewBox={`0 0 ${width} ${heightSvg}`} preserveAspectRatio="none" aria-hidden="true">
+                        <defs>
+                            <linearGradient id={incomeGradientId} x1="0" x2="0" y1="0" y2="1">
+                                <stop offset="0%" stopColor="#5d87ff" stopOpacity="0.2" />
+                                <stop offset="100%" stopColor="#5d87ff" stopOpacity="0" />
+                            </linearGradient>
+                            <linearGradient id={profitGradientId} x1="0" x2="0" y1="0" y2="1">
+                                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.16" />
+                                <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
+                            </linearGradient>
+                        </defs>
+                        <rect x={left} y={top} width={width - left - right} height={height} fill="transparent" />
+                        {tickValues.map((value) => {
+                            const y = yFor(value);
+
+                            return (
+                                <g key={value}>
+                                    <line className="stroke-border" x1={left} x2={width - right} y1={y} y2={y} strokeDasharray="5 7" vectorEffect="non-scaling-stroke" />
+                                    <text className="fill-muted-foreground text-[11px] font-bold" x={left - 12} y={y + 4} textAnchor="end">{rupiahCompact(Math.round(value))}</text>
+                                </g>
+                            );
+                        })}
+                        <line className="stroke-muted-foreground/40" x1={left} x2={width - right} y1={baselineY} y2={baselineY} strokeDasharray="6 6" vectorEffect="non-scaling-stroke" />
+                        <path d={incomeArea} fill={`url(#${incomeGradientId})`} />
+                        <path d={profitArea} fill={`url(#${profitGradientId})`} />
+                        {chartSeries.map((series) => (
+                            <path
+                                d={smoothPath(coordinatesFor(series.key))}
+                                fill="none"
+                                key={series.key}
+                                opacity={series.muted ? 0.72 : 1}
+                                stroke={series.color}
+                                strokeDasharray={series.dash}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={series.key === 'income' || series.key === 'net_profit' ? 3.4 : 2.4}
+                                vectorEffect="non-scaling-stroke"
+                            />
+                        ))}
+                        {activePointIndexes.map((index) => {
+                            const point = netProfitCoordinates[index];
+
+                            return <circle className="fill-card" key={`${point.label}-${index}`} cx={point.x} cy={point.y} r="4.2" stroke="#38bdf8" strokeWidth="2.4" vectorEffect="non-scaling-stroke" />;
+                        })}
+                        {axisLabels.map((point) => <text className="fill-muted-foreground text-[11px] font-bold" key={point.label} x={xFor(point.index)} y={heightSvg - 15} textAnchor="middle">{point.label}</text>)}
+                    </svg>
+                </div>
+
+                <div className="rounded-md border border-ld bg-background/35 p-4">
+                    <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Total periode</span>
+                    <div className="mt-4 grid gap-3">
+                        {totals.map((series) => (
+                            <div className="flex items-center justify-between gap-3 rounded-md bg-card/50 px-3 py-2" key={series.key}>
+                                    <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-muted-foreground">
+                                        <i className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: series.color }} />
+                                        <span className="truncate">{series.label}</span>
+                                    </span>
+                                    <strong className="whitespace-nowrap text-sm text-foreground">{rupiahCompact(series.value)}</strong>
+                                </div>
+                            ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function StockOpnamePage({ props }: { props: AppProps }) {
+    const [showCreate, setShowCreate] = useState(false);
+    const [query, setQuery] = useState('');
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'date' | 'user' | 'product' | 'system' | 'actual' | 'difference' | 'reason'>('date', 'desc');
+    const rows = props.stockOpnames.flatMap((opname) => opname.adjustments.map((adjustment, index) => ({
+        ...adjustment,
+        date: opname.date,
+        id: `${opname.id}-${index}`,
+        user: opname.user,
+    })));
+    const filteredRows = rows.filter((row) => matchesSearchText(`${row.date} ${row.user} ${row.product} ${row.reason ?? ''}`, query));
+    const sortedRows = [...filteredRows].sort((first, second) => {
+        const value = sortKey === 'user'
+            ? compareText(first.user, second.user)
+            : sortKey === 'product'
+                ? compareText(first.product, second.product)
+                : sortKey === 'system'
+                    ? compareNumber(first.system_stock, second.system_stock)
+                    : sortKey === 'actual'
+                        ? compareNumber(first.actual_stock, second.actual_stock)
+                        : sortKey === 'difference'
+                            ? compareNumber(first.difference, second.difference)
+                            : sortKey === 'reason'
+                                ? compareText(first.reason, second.reason)
+                                : parseDateForSort(first.date) - parseDateForSort(second.date);
+
+        return withSortDirection(value, sortDirection);
+    });
+
+    return (
+        <section className="grid gap-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">{showCreate ? 'Tambah Stok Opname' : 'Stok Opname'}</h1>
+                    <p className="text-sm text-muted-foreground">{showCreate ? 'Catat hasil hitung stok fisik dan alasan penyesuaian.' : 'Sesuaikan stok sistem dengan stok fisik.'}</p>
+                </div>
+                <Button className="self-start" variant={showCreate ? 'soft' : 'primary'} onClick={() => setShowCreate((current) => !current)}>{showCreate ? 'Kembali' : 'Tambah'}</Button>
+            </div>
+
+            {showCreate && <Card className="gap-0 overflow-hidden p-0">
+                <FormStack as="form" method="POST" action={props.routes.stockOpnamesStore ?? ''} className="gap-4 px-6 py-6">
+                    <input type="hidden" name="_token" value={props.csrf} />
+                    <CanvasFormRow label="Tanggal" required>
+                        <input name="opname_date" type="date" defaultValue={todayInputDate()} required />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Produk" required>
+                        <select name="product_id" defaultValue="" required>
+                            <option value="" disabled>Pilih produk</option>
+                            {props.products.map((product) => <option key={product.id} value={product.id}>{product.nama_barang} - sistem {product.stok}</option>)}
+                        </select>
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Stok Fisik" required>
+                        <input name="actual_stock" type="number" min={0} required placeholder="Masukan stok fisik" />
+                    </CanvasFormRow>
+                    <CanvasFormRow label="Alasan" required>
+                        <input name="reason" required placeholder="Masukan alasan penyesuaian" />
+                    </CanvasFormRow>
+                    <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                        <span className="hidden md:block" />
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="soft" onClick={() => setShowCreate(false)}>Batal</Button>
+                        </div>
+                    </div>
+                </FormStack>
+            </Card>}
+
+            {!showCreate && <Card>
+                <div className="mb-5 flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4 focus-within:border-primary">
+                    <svg className="size-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
+                    <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari tanggal, pengguna, produk, atau alasan..." aria-label="Cari stok opname" />
+                </div>
+                <DataTable className="[&_table]:min-w-[820px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
+                    <table>
+                        <thead><tr><th><SortableHeader column="date" label="Tanggal" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="user" label="Pengguna" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="product" label="Produk" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="system" label="Stok Sistem" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="actual" label="Stok Fisik" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="difference" label="Selisih" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="reason" label="Alasan" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th></tr></thead>
+                        <tbody>{sortedRows.length ? sortedRows.map((row) => <tr key={row.id}><td>{row.date}</td><td>{row.user}</td><td className="!text-left"><strong className="text-foreground">{row.product}</strong></td><td>{row.system_stock}</td><td>{row.actual_stock}</td><td className={row.difference === 0 ? 'text-foreground' : 'font-bold text-error'}>{row.difference}</td><td className="!text-left text-muted-foreground">{row.reason || '-'}</td></tr>) : <tr><td className="text-center text-muted-foreground" colSpan={7}>Belum ada stok opname.</td></tr>}</tbody>
+                    </table>
+                </DataTable>
+                <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredRows.length} dari {rows.length} data</p>
+            </Card>}
+        </section>
+    );
+}
+
+function auditActionLabel(action: string) {
+    const labels: Record<string, string> = {
+        'auth.login_failed': 'Login gagal',
+        'auth.login_success': 'Login berhasil',
+        'user.profile_updated': 'Profil akun diperbarui',
+        'user.password_updated': 'Kata sandi diperbarui',
+        'user.created': 'Pengguna dibuat',
+        'user.updated': 'Pengguna diperbarui',
+        'user.password_reset': 'Kata sandi pengguna direset',
+        'category.created': 'Kategori dibuat',
+        'category.updated': 'Kategori diperbarui',
+        'category.deleted': 'Kategori dihapus',
+        'product.created': 'Produk dibuat',
+        'product.updated': 'Produk diperbarui',
+        'product.deleted': 'Produk dihapus',
+        'product.inactivated': 'Produk dinonaktifkan',
+        'supplier.created': 'Suplier dibuat',
+        'supplier.updated': 'Suplier diperbarui',
+        'supplier.deleted': 'Suplier dihapus',
+        'stock_in.created': 'Pembelian stok dibuat',
+        'stock_in.updated': 'Pembelian stok diperbarui',
+        'stock_in.deleted': 'Pembelian stok dihapus',
+        'stock_in.document_viewed': 'Dokumen pembelian dilihat',
+        'stock_opname.completed': 'Stok opname disimpan',
+        'transaction.created': 'Transaksi dibuat',
+        'transaction.updated': 'Transaksi diperbarui',
+        'transaction.voided': 'Transaksi dihapus',
+        'transaction.settled': 'Transaksi dilunasi',
+        'payment_transfer.verified': 'Transfer diverifikasi',
+        'expense.created': 'Pengeluaran dibuat',
+        'expense.updated': 'Pengeluaran diperbarui',
+        'expense.deleted': 'Pengeluaran dihapus',
+        'expense.printed': 'Laporan pengeluaran dicetak',
+        'expense.attachment_viewed': 'Bukti pengeluaran dilihat',
+        'cashier_shift.opened': 'Shift kasir dibuka',
+        'cashier_shift.closed': 'Shift kasir ditutup',
+    };
+
+    return labels[action] ?? action.replaceAll('_', ' ').replaceAll('.', ' - ');
+}
+
+function AuditLoginPage({ props }: { props: AppProps }) {
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'time' | 'user' | 'activity'>('time', 'desc');
+    const sortedLogs = [...props.auditLogs].sort((first, second) => {
+        const value = sortKey === 'user'
+            ? compareText(first.user, second.user)
+            : sortKey === 'activity'
+                ? compareText(auditActionLabel(first.action), auditActionLabel(second.action))
+                : parseDateForSort(first.time) - parseDateForSort(second.time);
+
+        return withSortDirection(value, sortDirection);
+    });
+
+    return (
+        <section className="grid gap-6">
+            <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Audit Login</h1><p className="text-sm text-muted-foreground">Riwayat aktivitas pengguna dan perubahan data.</p></div>
+            <Card title="Daftar Audit">
+                <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
+                    <table>
+                        <thead><tr><th><SortableHeader column="time" label="Waktu" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="user" label="Pengguna" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th><th><SortableHeader column="activity" label="Aktivitas" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th></tr></thead>
+                        <tbody>{sortedLogs.length ? sortedLogs.map((log) => <tr key={log.id}><td>{log.time}</td><td className="!text-left"><strong className="text-foreground">{log.user}</strong></td><td className="!text-left text-muted-foreground">{auditActionLabel(log.action)}</td></tr>) : <tr><td className="text-center text-muted-foreground" colSpan={3}>Belum ada aktivitas audit.</td></tr>}</tbody>
+                    </table>
+                </DataTable>
+            </Card>
+        </section>
     );
 }
 
@@ -2431,23 +3005,46 @@ function OperationalPanels({ props, compact = false }: { props: AppProps; compac
 
 function ReportLineChart({ points }: { points: Array<{ label: string; value: number }> }) {
     const safePoints = points.length ? points : [{ label: '-', value: 0 }];
-    const max = Math.max(...safePoints.map((point) => point.value), 1);
+    const gradientId = `report-area-${useId().replace(/:/g, '')}`;
+    const values = safePoints.map((point) => point.value);
+    const high = Math.max(...values);
+    const low = Math.min(...values);
+    const max = Math.max(high, 0, 1);
+    const min = Math.min(low, 0);
+    const range = Math.max(max - min, 1);
+    const baselineY = 48 - ((0 - min) / range) * 38;
     const coordinates = safePoints.map((point, index) => {
         const x = safePoints.length === 1 ? 50 : (index / (safePoints.length - 1)) * 100;
-        const y = 48 - (point.value / max) * 38;
+        const y = 48 - ((point.value - min) / range) * 38;
 
         return { ...point, x, y };
     });
+    const pointString = coordinates.map((point) => `${point.x},${point.y}`).join(' ');
+    const areaString = `0,${baselineY} ${pointString} 100,${baselineY}`;
 
     return (
-        <div className="relative grid gap-3">
-            <svg className="h-72 w-full overflow-visible rounded-md bg-card p-3" viewBox="0 0 100 52" preserveAspectRatio="none" aria-hidden="true">
-                {[10, 20, 30, 40].map((y) => <line className="stroke-border" key={y} x1="0" x2="100" y1={y} y2={y} />)}
-                <polyline className="fill-none stroke-primary stroke-[2.5]" points={coordinates.map((point) => `${point.x},${point.y}`).join(' ')} />
-                {coordinates.map((point) => <circle className="fill-card stroke-primary stroke-[1.75]" key={`${point.label}-${point.x}`} cx={point.x} cy={point.y} r="1.25" />)}
+        <div className="relative overflow-hidden rounded-md border border-ld bg-card p-4">
+            <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                    <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Nilai tertinggi</span>
+                    <strong className="mt-1 block text-lg font-semibold text-foreground">{rupiah(high)}</strong>
+                </div>
+                <span className="rounded-md bg-lightprimary px-3 py-1 text-xs font-bold text-primary">{safePoints.length} titik</span>
+            </div>
+            <svg className="h-64 w-full overflow-visible" viewBox="0 0 100 52" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                    <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#5d87ff" stopOpacity="0.34" />
+                        <stop offset="100%" stopColor="#5d87ff" stopOpacity="0" />
+                    </linearGradient>
+                </defs>
+                {[12, 24, 36, 48].map((y) => <line className="stroke-border" key={y} x1="0" x2="100" y1={y} y2={y} strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />)}
+                {min < 0 && max > 0 && <line className="stroke-muted-foreground/40" x1="0" x2="100" y1={baselineY} y2={baselineY} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
+                <polygon fill={`url(#${gradientId})`} points={areaString} />
+                <polyline className="fill-none stroke-primary" points={pointString} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.7" vectorEffect="non-scaling-stroke" />
+                {coordinates.map((point) => <circle className="fill-card stroke-primary" key={`${point.label}-${point.x}`} cx={point.x} cy={point.y} r="1.7" strokeWidth="1.7" vectorEffect="non-scaling-stroke" />)}
             </svg>
-            <div className="grid grid-flow-col justify-between gap-3 text-xs font-bold text-muted-foreground">{coordinates.map((point) => <span className="truncate" key={point.label}>{point.label}</span>)}</div>
-            <div className="absolute right-4 top-4 rounded-md bg-lightprimary px-3 py-1 text-xs font-semibold text-primary">{rupiah(max)}</div>
+            <div className="mt-4 grid grid-flow-col justify-between gap-3 text-xs font-bold text-muted-foreground">{coordinates.map((point) => <span className="truncate" key={point.label}>{point.label}</span>)}</div>
         </div>
     );
 }
@@ -2474,19 +3071,20 @@ function PaymentDonut({ rows }: { rows: Array<{ label: string; value: number; co
     );
 }
 
-function ComparisonBars({ income, expense }: { income: number; expense: number }) {
-    const max = Math.max(income, expense, 1);
+function ComparisonBars({ expense, expenseLabel = 'Pengeluaran', income, incomeLabel = 'Pendapatan' }: { expense: number; expenseLabel?: string; income: number; incomeLabel?: string }) {
+    const max = Math.max(Math.abs(income), Math.abs(expense), 1);
 
     return (
         <div className="grid gap-4">
-            {[{ label: 'Pendapatan', value: income, color: 'bg-primary' }, { label: 'Pengeluaran', value: expense, color: 'bg-error' }].map((row) => <div className="grid gap-2 md:grid-cols-[140px_minmax(0,1fr)_160px] md:items-center" key={row.label}><span className="text-sm font-bold text-foreground">{row.label}</span><div className="h-4 overflow-hidden rounded-full bg-muted"><i className={`block h-full rounded-full ${row.color}`} style={{ width: `${Math.max(4, (row.value / max) * 100)}%` }} /></div><strong className="text-sm text-foreground md:text-right">{rupiah(row.value)}</strong></div>)}
+            {[{ label: incomeLabel, value: income, color: 'bg-primary' }, { label: expenseLabel, value: expense, color: expense >= 0 ? 'bg-error' : 'bg-warning' }].map((row) => <div className="grid gap-2 md:grid-cols-[140px_minmax(0,1fr)_160px] md:items-center" key={row.label}><span className="text-sm font-bold text-foreground">{row.label}</span><div className="h-4 overflow-hidden rounded-full bg-muted"><i className={`block h-full rounded-full ${row.color}`} style={{ width: `${Math.max(4, (Math.abs(row.value) / max) * 100)}%` }} /></div><strong className="text-sm text-foreground md:text-right">{rupiah(row.value)}</strong></div>)}
         </div>
     );
 }
 
 function ExpenseCategoryChart({ expenses }: { expenses: Expense[] }) {
     const grouped = expenses.reduce<Record<string, number>>((carry, expense) => {
-        carry[expense.category] = (carry[expense.category] ?? 0) + expense.amount;
+        const label = expense.uraian || expense.description;
+        carry[label] = (carry[label] ?? 0) + expense.amount;
 
         return carry;
     }, {});
@@ -2504,6 +3102,7 @@ function Cashiers({ props }: { props: AppProps }) {
     const initialTab = props.settingsTab === 'receipt' || props.settingsTab === 'users' || props.settingsTab === 'data' ? props.settingsTab : 'profile';
     const [tab, setTab] = useState<'profile' | 'receipt' | 'users' | 'data'>(initialTab);
     const [receiptDraft, setReceiptDraft] = useState<ReceiptSettings>(props.receiptSettings);
+    const { sortDirection: cashierSortDirection, sortKey: cashierSortKey, toggleSort: toggleCashierSort } = useTableSort<'name' | 'username' | 'role' | 'status' | 'sales'>('name');
     const settingsTabs = [
         { id: 'profile' as const, label: 'Profil Toko' },
         { id: 'receipt' as const, label: 'Struk & Pajak' },
@@ -2513,6 +3112,19 @@ function Cashiers({ props }: { props: AppProps }) {
     const updateReceiptDraft = (key: keyof ReceiptSettings, value: string) => {
         setReceiptDraft((current) => ({ ...current, [key]: value }));
     };
+    const sortedCashiers = [...props.cashiers].sort((first, second) => {
+        const value = cashierSortKey === 'username'
+            ? compareText(first.username, second.username)
+            : cashierSortKey === 'role'
+                ? compareText(first.role, second.role)
+                : cashierSortKey === 'status'
+                    ? compareText(first.status, second.status)
+                    : cashierSortKey === 'sales'
+                        ? compareNumber(first.today_sales, second.today_sales)
+                        : compareText(first.name, second.name);
+
+        return withSortDirection(value, cashierSortDirection);
+    });
 
     return (
         <section className="grid gap-6">
@@ -2578,39 +3190,64 @@ function Cashiers({ props }: { props: AppProps }) {
                         <div className="mt-5 grid gap-3 border-t border-ld pt-5">
                             <div className="grid gap-1"><span className="text-xs font-bold uppercase text-muted-foreground">Printer</span><strong className="text-sm text-foreground">X58MP II</strong></div>
                             <div className="grid gap-1"><span className="text-xs font-bold uppercase text-muted-foreground">Mode</span><strong className="text-sm text-foreground">Thermal ESC/POS</strong></div>
-                            <SettingsToggle title="Cetak Otomatis" description="Diatur lewat file .env" defaultChecked />
+                            <SettingsToggle title="PDF Browser" description="Cetak dari preview nota" defaultChecked />
                             <Button variant="soft" type="button" onClick={() => window.print()}>Tes Tampilan</Button>
                         </div>
                     </Card>
                 </div>}
 
                 {tab === 'users' && <div className="grid gap-5">
-                    <Card className="bg-background" title="Tambah Pengguna">
-                        <FormGrid method="POST" action={props.routes.cashiersStore ?? ''}>
+                    <Card className="gap-0 overflow-hidden bg-background p-0">
+                        <div className="border-b border-ld px-6 py-5">
+                            <h2 className="text-lg font-semibold text-foreground">Tambah Pengguna</h2>
+                            <p className="mt-1 text-sm text-muted-foreground">Buat akun kasir atau admin baru.</p>
+                        </div>
+                        <FormStack as="form" method="POST" action={props.routes.cashiersStore ?? ''} className="gap-4 px-6 py-6">
                             <input type="hidden" name="_token" value={props.csrf} />
-                            <Field label="Nama"><input name="name" required /></Field>
-                            <Field label="Nama pengguna"><input name="username" required /></Field>
-                            <Field label="Kata sandi"><input name="password" type="password" required /></Field>
-                            <Field label="Peran"><select name="role"><option value="cashier">Kasir</option><option value="admin">Admin</option></select></Field>
-                            <Field label="Status"><select name="status" defaultValue="active"><option value="active">Aktif</option><option value="inactive">Nonaktif</option></select></Field>
-                            <Button variant="primary" type="submit">Simpan Pengguna</Button>
-                        </FormGrid>
+                            <CanvasFormRow label="Nama" required>
+                                <input name="name" required placeholder="Masukan nama pengguna" />
+                            </CanvasFormRow>
+                            <CanvasFormRow label="Nama Pengguna" required>
+                                <input name="username" required placeholder="Masukan nama pengguna untuk login" />
+                            </CanvasFormRow>
+                            <CanvasFormRow label="Kata Sandi" required>
+                                <input name="password" type="password" required placeholder="Masukan kata sandi" />
+                            </CanvasFormRow>
+                            <CanvasFormRow label="Peran" required>
+                                <select name="role" defaultValue="cashier">
+                                    <option value="cashier">Kasir</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </CanvasFormRow>
+                            <CanvasFormRow label="Status" required>
+                                <select name="status" defaultValue="active">
+                                    <option value="active">Aktif</option>
+                                    <option value="inactive">Nonaktif</option>
+                                </select>
+                            </CanvasFormRow>
+                            <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                                <span className="hidden md:block" />
+                                <div className="flex flex-wrap gap-2">
+                                    <Button variant="primary" type="submit">Simpan</Button>
+                                </div>
+                            </div>
+                        </FormStack>
                     </Card>
                     <Card className="bg-background" title="Daftar Pengguna">
-                        <DataTable className="[&_table]:min-w-[860px]">
+                        <DataTable className="[&_table]:min-w-[860px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Nama</th>
-                                        <th>Nama pengguna</th>
-                                        <th>Peran</th>
-                                        <th>Status</th>
-                                        <th>Penjualan Hari Ini</th>
+                                        <th><SortableHeader column="name" label="Nama" sortDirection={cashierSortDirection} sortKey={cashierSortKey} onSort={toggleCashierSort} /></th>
+                                        <th><SortableHeader column="username" label="Nama pengguna" sortDirection={cashierSortDirection} sortKey={cashierSortKey} onSort={toggleCashierSort} /></th>
+                                        <th><SortableHeader column="role" label="Peran" sortDirection={cashierSortDirection} sortKey={cashierSortKey} onSort={toggleCashierSort} /></th>
+                                        <th><SortableHeader column="status" label="Status" sortDirection={cashierSortDirection} sortKey={cashierSortKey} onSort={toggleCashierSort} /></th>
+                                        <th><SortableHeader column="sales" label="Penjualan Hari Ini" sortDirection={cashierSortDirection} sortKey={cashierSortKey} onSort={toggleCashierSort} /></th>
                                         <th className="w-48">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {props.cashiers.map((cashier) => (
+                                    {sortedCashiers.map((cashier) => (
                                         <tr key={cashier.id}>
                                             <td className="!text-left"><strong className="text-foreground">{cashier.name}</strong></td>
                                             <td>{cashier.username}</td>
@@ -2742,75 +3379,41 @@ function Account({ props }: { props: AppProps }) {
     );
 }
 
-type ProductSortKey = 'barcode' | 'name' | 'category' | 'minimum';
-type StockInSortKey = 'barcode' | 'name' | 'stock';
+type ProductSortKey = 'barcode' | 'name' | 'category' | 'unit' | 'minimum' | 'status';
+type StockSortKey = 'barcode' | 'name' | 'stock';
 
-function StockInTable({ purchases }: { purchases: StockIn[] }) {
-    const [sortKey, setSortKey] = useState<StockInSortKey>('name');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-    const sortedPurchases = [...purchases].sort((first, second) => {
-        const direction = sortDirection === 'asc' ? 1 : -1;
+function StockTable({ products }: { products: Product[] }) {
+    const { sortDirection, sortKey, toggleSort } = useTableSort<StockSortKey>('name');
+    const sortedProducts = [...products].sort((first, second) => {
+        const value = sortKey === 'stock'
+            ? compareNumber(first.stok, second.stok)
+            : sortKey === 'barcode'
+                ? compareText(first.kode_barang, second.kode_barang)
+                : compareText(first.nama_barang, second.nama_barang);
 
-        if (sortKey === 'stock') {
-            return (first.qty - second.qty) * direction;
-        }
-
-        const firstValue = sortKey === 'barcode' ? first.barcode ?? first.product_code ?? '' : first.product;
-        const secondValue = sortKey === 'barcode' ? second.barcode ?? second.product_code ?? '' : second.product;
-
-        return firstValue.localeCompare(secondValue, 'id') * direction;
+        return withSortDirection(value, sortDirection);
     });
-    const toggleSort = (key: StockInSortKey) => {
-        if (sortKey === key) {
-            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
-            return;
-        }
-
-        setSortKey(key);
-        setSortDirection('asc');
-    };
-    const sortIcon = (key: StockInSortKey) => {
-        const active = sortKey === key;
-        const upActive = active && sortDirection === 'asc';
-        const downActive = active && sortDirection === 'desc';
-
-        return (
-            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
-                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 0 8 5H0L4 0Z" />
-                </svg>
-                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 5 0 0h8L4 5Z" />
-                </svg>
-            </span>
-        );
-    };
-    const sortableHeader = (label: string, key: StockInSortKey) => (
-        <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort(key)}>
-            {label} {sortIcon(key)}
-        </button>
-    );
 
     return (
-        <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+        <DataTable className="[&_table]:min-w-[760px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
             <table>
                 <thead>
                     <tr>
                         <th className="w-16 !text-center">No</th>
-                        <th className="!text-center">{sortableHeader('Barcode', 'barcode')}</th>
-                        <th className="!text-center">{sortableHeader('Nama', 'name')}</th>
-                        <th className="w-28 !text-center">{sortableHeader('Stok', 'stock')}</th>
+                        <th className="!text-center"><SortableHeader column="barcode" label="Barcode" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="name" label="Nama" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-28 !text-center"><SortableHeader column="stock" label="Stok" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                     </tr>
                 </thead>
                 <tbody>
-                    {sortedPurchases.length ? sortedPurchases.map((stockIn, index) => (
-                        <tr key={stockIn.id}>
+                    {sortedProducts.length ? sortedProducts.map((product, index) => (
+                        <tr key={product.id}>
                             <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
-                            <td className="!text-center font-medium text-foreground">{stockIn.barcode || stockIn.product_code || '-'}</td>
+                            <td className="!text-center font-medium text-foreground">{product.kode_barang || '-'}</td>
                             <td className="!text-left">
-                                <strong className="text-foreground">{stockIn.product}</strong>
+                                <strong className="text-foreground">{product.nama_barang}</strong>
                             </td>
-                            <td className="!text-center font-semibold text-foreground">{stockIn.qty}</td>
+                            <td className="!text-center font-semibold text-foreground">{product.stok}</td>
                         </tr>
                     )) : <tr><td className="text-center text-muted-foreground" colSpan={4}>Belum ada stok yang cocok.</td></tr>}
                 </tbody>
@@ -2820,63 +3423,35 @@ function StockInTable({ purchases }: { purchases: StockIn[] }) {
 }
 
 function ProductTable({ products, showActions = false, csrf, onEdit }: { products: Product[]; showActions?: boolean; csrf?: string; onEdit?: (product: Product) => void }) {
-    const [sortKey, setSortKey] = useState<ProductSortKey>('name');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const { sortDirection, sortKey, toggleSort } = useTableSort<ProductSortKey>('name');
     const sortedProducts = [...products].sort((first, second) => {
-        const direction = sortDirection === 'asc' ? 1 : -1;
+        const value = sortKey === 'minimum'
+            ? compareNumber(first.stok_minimal, second.stok_minimal)
+            : sortKey === 'barcode'
+                ? compareText(first.kode_barang, second.kode_barang)
+                : sortKey === 'category'
+                    ? compareText(first.kategori, second.kategori)
+                    : sortKey === 'unit'
+                        ? compareText(first.satuan, second.satuan)
+                        : sortKey === 'status'
+                            ? compareText(first.status, second.status)
+                            : compareText(first.nama_barang, second.nama_barang);
 
-        if (sortKey === 'minimum') {
-            return (first.stok_minimal - second.stok_minimal) * direction;
-        }
-
-        const firstValue = sortKey === 'barcode' ? first.kode_barang : sortKey === 'category' ? first.kategori : first.nama_barang;
-        const secondValue = sortKey === 'barcode' ? second.kode_barang : sortKey === 'category' ? second.kategori : second.nama_barang;
-
-        return firstValue.localeCompare(secondValue, 'id') * direction;
+        return withSortDirection(value, sortDirection);
     });
-    const toggleSort = (key: ProductSortKey) => {
-        if (sortKey === key) {
-            setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
-            return;
-        }
-
-        setSortKey(key);
-        setSortDirection('asc');
-    };
-    const sortIcon = (key: ProductSortKey) => {
-        const active = sortKey === key;
-        const upActive = active && sortDirection === 'asc';
-        const downActive = active && sortDirection === 'desc';
-
-        return (
-            <span className="grid gap-0.5 text-darklink" aria-hidden="true">
-                <svg className={`h-1.5 w-2 ${upActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 0 8 5H0L4 0Z" />
-                </svg>
-                <svg className={`h-1.5 w-2 ${downActive ? 'text-primary' : ''}`} fill="currentColor" viewBox="0 0 8 5">
-                    <path d="M4 5 0 0h8L4 5Z" />
-                </svg>
-            </span>
-        );
-    };
-    const sortableHeader = (label: string, key: ProductSortKey) => (
-        <button className="mx-auto inline-flex items-center justify-center gap-2 font-medium text-inherit hover:text-primary" type="button" onClick={() => toggleSort(key)}>
-            {label} {sortIcon(key)}
-        </button>
-    );
 
     return (
-        <DataTable className="[&_table]:min-w-[920px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+        <DataTable className="[&_table]:min-w-[920px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
             <table>
                 <thead>
                     <tr>
                         <th className="w-16 !text-center">No</th>
-                        <th className="!text-center">{sortableHeader('Barcode', 'barcode')}</th>
-                        <th className="!text-center">{sortableHeader('Nama', 'name')}</th>
-                        <th className="!text-center">{sortableHeader('Kategori', 'category')}</th>
-                        <th className="w-28 !text-center">Satuan</th>
-                        <th className="w-36 !text-center">{sortableHeader('Stok minimal', 'minimum')}</th>
-                        <th className="w-28 !text-center">Status</th>
+                        <th className="!text-center"><SortableHeader column="barcode" label="Barcode" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="name" label="Nama" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="category" label="Kategori" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-28 !text-center"><SortableHeader column="unit" label="Satuan" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-36 !text-center"><SortableHeader column="minimum" label="Stok minimal" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-28 !text-center"><SortableHeader column="status" label="Status" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                         {showActions && <th className="w-32 !text-center">Aksi</th>}
                     </tr>
                 </thead>
@@ -2930,40 +3505,61 @@ function ProductTable({ products, showActions = false, csrf, onEdit }: { product
     );
 }
 
-function ExpenseTable({ expenses, csrf, onEdit }: { expenses: Expense[]; csrf: string; onEdit: (expense: Expense) => void }) {
+function ExpenseTable({ expenses, csrf, onEdit, showActions }: { expenses: Expense[]; csrf: string; onEdit: (expense: Expense) => void; showActions: boolean }) {
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'date' | 'description' | 'volume' | 'unit' | 'price' | 'amount' | 'notes'>('date', 'desc');
+    const sortedExpenses = [...expenses].sort((first, second) => {
+        const value = sortKey === 'description'
+            ? compareText(first.uraian, second.uraian)
+            : sortKey === 'volume'
+                ? compareNumber(first.volume, second.volume)
+                : sortKey === 'unit'
+                    ? compareText(first.unit, second.unit)
+                    : sortKey === 'price'
+                        ? compareNumber(first.price, second.price)
+                        : sortKey === 'amount'
+                            ? compareNumber(first.amount, second.amount)
+                            : sortKey === 'notes'
+                                ? compareText(first.notes, second.notes)
+                                : parseDateForSort(first.spent_at) - parseDateForSort(second.spent_at);
+
+        return withSortDirection(value, sortDirection);
+    });
+
     return (
-        <DataTable className="[&_table]:min-w-[980px]">
+        <DataTable className="[&_table]:min-w-[940px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
             <table>
                 <thead>
                     <tr>
-                        <th className="w-32">Tanggal</th>
-                        <th className="w-44">Kategori</th>
-                        <th>Deskripsi</th>
-                        <th className="w-40">Nominal</th>
-                        <th className="w-40">Pengguna</th>
-                        <th className="w-28">Bukti</th>
-                        <th className="w-28">Aksi</th>
+                        <th className="w-16 !text-center">No</th>
+                        <th className="w-32 !text-center"><SortableHeader column="date" label="Tanggal" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="description" label="Uraian" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-24 !text-center"><SortableHeader column="volume" label="Vol" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-28 !text-center"><SortableHeader column="unit" label="Satuan" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-40 !text-center"><SortableHeader column="price" label="Harga" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-40 !text-center"><SortableHeader column="amount" label="Jumlah" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="notes" label="Keterangan" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        {showActions && <th className="w-28 !text-center">Aksi</th>}
                     </tr>
                 </thead>
                 <tbody>
-                    {expenses.length ? expenses.map((expense) => (
+                    {sortedExpenses.length ? sortedExpenses.map((expense, index) => (
                         <tr key={expense.id}>
-                            <td>{expense.spent_at}</td>
-                            <td><Badge className="rounded-full px-3 py-1" variant="blue">{expense.category}</Badge></td>
-                            <td className="!text-left"><strong className="text-foreground">{expense.description}</strong></td>
-                            <td className="font-bold text-error whitespace-nowrap">{rupiah(expense.amount)}</td>
-                            <td>{expense.user}</td>
-                            <td>
-                                {expense.attachment_url ? <a className="mx-auto grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" href={expense.attachment_url} target="_blank" title="Bukti" aria-label={`Bukti ${expense.description}`}><NavIcon name="receipt" /></a> : <span className="text-sm text-muted-foreground">-</span>}
-                            </td>
-                            <td>
+                            <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                            <td className="!text-center">{expense.spent_at}</td>
+                            <td className="!text-left"><strong className="text-foreground">{expense.uraian}</strong></td>
+                            <td className="!text-center">{Number(expense.volume).toLocaleString('id-ID')}</td>
+                            <td className="!text-center">{expense.unit ?? '-'}</td>
+                            <td className="!text-center whitespace-nowrap font-semibold text-foreground">{rupiah(expense.price)}</td>
+                            <td className="!text-center font-bold text-error whitespace-nowrap">{rupiah(expense.amount)}</td>
+                            <td className="!text-left text-muted-foreground">{expense.notes || '-'}</td>
+                            {showActions && <td>
                                 <div className="flex items-center justify-center gap-1">
-                                    <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${expense.description}`} onClick={() => onEdit(expense)}><NavIcon name="edit" /></button>
-                                    {expense.destroy_url && <button className="grid size-8 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${expense.description}`} onClick={() => { if (window.confirm(`Hapus pengeluaran ${expense.description}?`)) postForm(expense.destroy_url, csrf, { _method: 'DELETE' }); }}><NavIcon name="trash" /></button>}
+                                    <button className="grid size-7 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${expense.uraian}`} onClick={() => onEdit(expense)}><NavIcon name="edit" /></button>
+                                    {expense.destroy_url && <button className="grid size-7 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${expense.uraian}`} onClick={() => { if (window.confirm(`Hapus pengeluaran ${expense.uraian}?`)) postForm(expense.destroy_url, csrf, { _method: 'DELETE' }); }}><NavIcon name="trash" /></button>}
                                 </div>
-                            </td>
+                            </td>}
                         </tr>
-                    )) : <tr><td className="text-center text-muted-foreground" colSpan={7}>Tidak ada pengeluaran yang cocok.</td></tr>}
+                    )) : <tr><td className="text-center text-muted-foreground" colSpan={showActions ? 9 : 8}>Tidak ada pengeluaran yang cocok.</td></tr>}
                 </tbody>
             </table>
         </DataTable>
@@ -2971,6 +3567,7 @@ function ExpenseTable({ expenses, csrf, onEdit }: { expenses: Expense[]; csrf: s
 }
 
 function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transactions: Transaction[]; showCashier: boolean; csrf: string; onEdit?: (transaction: Transaction) => void }) {
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'date' | 'cashier' | 'customer' | 'method' | 'status' | 'total'>('date', 'desc');
     const paymentLabel = (transaction: Transaction) => {
         if (transaction.payment_status === 'pending') {
             return 'Belum Bayar';
@@ -2989,23 +3586,39 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
     const deleteTransaction = (transaction: Transaction) => {
         postForm(transaction.destroy_url, csrf, { _method: 'DELETE' });
     };
+    const sortedTransactions = [...transactions].sort((first, second) => {
+        const statusText = (transaction: Transaction) => transaction.status === 'void' ? 'Batal' : transaction.payment_status === 'paid' ? 'Lunas' : 'Belum Bayar';
+        const value = sortKey === 'cashier'
+            ? compareText(first.cashier, second.cashier)
+            : sortKey === 'customer'
+                ? compareText(first.customer_name, second.customer_name)
+                : sortKey === 'method'
+                    ? compareText(paymentLabel(first), paymentLabel(second))
+                    : sortKey === 'status'
+                        ? compareText(statusText(first), statusText(second))
+                        : sortKey === 'total'
+                            ? compareNumber(first.total, second.total)
+                            : parseDateForSort(first.created_at) - parseDateForSort(second.created_at);
+
+        return withSortDirection(value, sortDirection);
+    });
 
     return (
-        <DataTable className="rounded-md border border-ld [&_table]:min-w-[900px] [&_td]:py-4 [&_tbody_tr]:cursor-default [&_tbody_tr]:hover:bg-lightprimary/60 [&_th]:!text-center [&_th]:text-sm [&_th]:font-semibold [&_th]:text-muted-foreground">
+        <DataTable className="rounded-md border border-ld [&_table]:min-w-[900px] [&_td]:py-4 [&_tbody_tr]:cursor-default [&_tbody_tr]:hover:bg-primary/10 [&_th]:!text-center [&_th]:text-sm [&_th]:font-semibold [&_th]:text-foreground">
             <table>
                 <thead>
                     <tr>
-                        <th>Tanggal</th>
-                        {showCashier && <th>Kasir</th>}
-                        <th>Pembeli</th>
-                        <th>Metode</th>
-                        <th>Status</th>
-                        <th className="!text-right">Total</th>
+                        <th><SortableHeader column="date" label="Tanggal" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        {showCashier && <th><SortableHeader column="cashier" label="Kasir" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>}
+                        <th><SortableHeader column="customer" label="Pembeli" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th><SortableHeader column="method" label="Metode" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th><SortableHeader column="status" label="Status" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-right"><SortableHeader align="right" column="total" label="Total" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                         <th className="w-20 text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {transactions.length ? transactions.map((transaction) => {
+                    {sortedTransactions.length ? sortedTransactions.map((transaction) => {
                         const isVoid = transaction.status === 'void';
                         const badgeVariant = isVoid ? 'red' : transaction.payment_status === 'paid' ? 'green' : 'amber';
                         const createdAt = splitDateTime(transaction.created_at);
@@ -3035,7 +3648,7 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
                                 <td>
                                     <div className="flex items-center justify-center gap-1">
                                         {transaction.update_url && onEdit && !isVoid && <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${transaction.kode_transaksi}`} onClick={() => onEdit(transaction)}><NavIcon name="edit" /></button>}
-                                        <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Cetak ulang" aria-label={`Cetak ulang ${transaction.kode_transaksi}`} onClick={() => void reprintThermal(transaction)}><NavIcon name="print" /></button>
+                                        <a className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" href={transaction.receipt_url} target="_blank" rel="noreferrer" title="Preview nota" aria-label={`Preview nota ${transaction.kode_transaksi}`}><NavIcon name="print" /></a>
                                         {!isVoid && transaction.payment_status === 'pending' && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.settle_url, csrf, { _method: 'PUT', payment_type: 'cash', uang_diterima: transaction.total })}>Lunasi</button>}
                                         {showCashier && !isVoid && transaction.payment_type === 'transfer' && transaction.payment_status === 'paid' && !transaction.payment_verified_at && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.verify_transfer_url, csrf, { _method: 'PUT' })}>Verifikasi</button>}
                                         {showCashier && !isVoid && <button className="grid size-8 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${transaction.kode_transaksi}`} onClick={() => deleteTransaction(transaction)}><NavIcon name="trash" /></button>}
@@ -3051,18 +3664,29 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
 }
 
 function PurchaseTable({ purchases, csrf, onEdit }: { purchases: StockIn[]; csrf: string; onEdit: (stockIn: StockIn) => void }) {
-    const sortedPurchases = [...purchases].sort((first, second) => first.product.localeCompare(second.product, 'id'));
+    const { sortDirection, sortKey, toggleSort } = useTableSort<'date' | 'supplier' | 'product' | 'qty'>('date', 'desc');
+    const sortedPurchases = [...purchases].sort((first, second) => {
+        const value = sortKey === 'supplier'
+            ? compareText(first.supplier, second.supplier)
+            : sortKey === 'product'
+                ? compareText(first.product, second.product)
+                : sortKey === 'qty'
+                    ? compareNumber(first.qty, second.qty)
+                    : parseDateForSort(first.tanggal) - parseDateForSort(second.tanggal);
+
+        return withSortDirection(value, sortDirection);
+    });
 
     return (
-        <DataTable className="[&_table]:min-w-[820px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-muted-foreground">
+        <DataTable className="[&_table]:min-w-[820px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
             <table>
                 <thead>
                     <tr>
                         <th className="w-16 !text-center">No</th>
-                        <th className="w-36 !text-center">Tanggal</th>
-                        <th className="!text-center">Suplier</th>
-                        <th className="!text-center">Produk</th>
-                        <th className="w-36 !text-center">Jumlah Produk</th>
+                        <th className="w-36 !text-center"><SortableHeader column="date" label="Tanggal" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="supplier" label="Suplier" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="!text-center"><SortableHeader column="product" label="Produk" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
+                        <th className="w-36 !text-center"><SortableHeader column="qty" label="Jumlah Produk" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                         <th className="w-28 !text-center">Aksi</th>
                     </tr>
                 </thead>
