@@ -65,7 +65,7 @@ class StockInController extends Controller
             ]);
         });
 
-        return redirect()->route('dashboard', ['page' => 'stock'])->with('success', 'Barang masuk tersimpan dan stok bertambah.');
+        return redirect()->route('dashboard', ['page' => 'purchases'])->with('success', 'Barang masuk tersimpan dan stok bertambah.');
     }
 
     public function update(StockInRequest $request, StockIn $stockIn): RedirectResponse
@@ -129,7 +129,7 @@ class StockInController extends Controller
             ]);
         });
 
-        return redirect()->route('dashboard', ['page' => 'stock'])->with('success', 'Pembelian berhasil diperbarui.');
+        return redirect()->route('dashboard', ['page' => 'purchases'])->with('success', 'Pembelian berhasil diperbarui.');
     }
 
     public function destroy(StockIn $stockIn): RedirectResponse
@@ -155,7 +155,7 @@ class StockInController extends Controller
             $stockIn->delete();
         });
 
-        return redirect()->route('dashboard', ['page' => 'stock'])->with('success', 'Pembelian berhasil dihapus.');
+        return redirect()->route('dashboard', ['page' => 'purchases'])->with('success', 'Pembelian berhasil dihapus.');
     }
 
     public function document(StockIn $stockIn, string $document): BinaryFileResponse

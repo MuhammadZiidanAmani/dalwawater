@@ -14,6 +14,7 @@ use App\Models\PaymentVerification;
 use App\Models\Product;
 use App\Models\Transaction;
 use App\Services\ThermalReceiptPrinter;
+use App\Services\ThermalReceiptText;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -191,6 +192,58 @@ class TransactionController extends Controller
         return $pdf->stream($filename);
     }
 
+    public function receiptJpeg(Request $request, Transaction $transaction, ThermalReceiptText $receiptText)
+    {
+        $this->authorize('view', $transaction);
+        abort_unless(extension_loaded('gd'), 500, 'Ekstensi GD belum aktif untuk membuat gambar nota.');
+
+        $transaction->load(['user', 'details.product']);
+
+        $width = $request->query('size') === '80mm'
+            ? 42
+            : (int) (AppSetting::receiptSettings()['receipt_paper_width'] ?? config('thermal.width', 32));
+        $width = max(24, min(42, $width));
+        $text = $receiptText->text($transaction, $width, 1);
+        $lines = preg_split('/\R/', rtrim($text, "\r\n")) ?: [];
+
+        $font = 5;
+        $paddingX = 24;
+        $paddingY = 24;
+        $bottomPadding = 48;
+        $lineHeight = imagefontheight($font) + 8;
+        $charWidth = imagefontwidth($font);
+        $maxChars = max(array_map(fn (string $line) => strlen($line), $lines ?: ['']));
+        $canvasWidth = max(($width * $charWidth) + ($paddingX * 2), ($maxChars * $charWidth) + ($paddingX * 2));
+        $canvasHeight = ($paddingY * 2) + $bottomPadding + (max(1, count($lines)) * $lineHeight);
+
+        $image = imagecreatetruecolor($canvasWidth, $canvasHeight);
+        $white = imagecolorallocate($image, 255, 255, 255);
+        $black = imagecolorallocate($image, 17, 24, 39);
+        imagefill($image, 0, 0, $white);
+
+        foreach ($lines as $index => $line) {
+            imagestring($image, $font, $paddingX, $paddingY + ($index * $lineHeight), $line, $black);
+        }
+
+        $scaledImage = imagescale($image, $canvasWidth * 2, $canvasHeight * 2, IMG_NEAREST_NEIGHBOUR);
+        imagedestroy($image);
+
+        if (! $scaledImage) {
+            abort(500, 'Gagal membuat gambar nota.');
+        }
+
+        ob_start();
+        imagejpeg($scaledImage, null, 92);
+        $jpeg = ob_get_clean();
+        imagedestroy($scaledImage);
+
+        return response($jpeg, 200, [
+            'Content-Type' => 'image/jpeg',
+            'Content-Disposition' => 'attachment; filename="nota-'.$transaction->kode_transaksi.'.jpg"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
+    }
+
     public function thermalPayload(Transaction $transaction): JsonResponse
     {
         $this->authorize('view', $transaction);
@@ -313,7 +366,7 @@ class TransactionController extends Controller
                 'error' => $exception->getMessage(),
             ]);
 
-            return redirect()->back()->with('warning', 'Struk thermal gagal dicetak. Pastikan printer X58MP II aktif dan nama printer sesuai konfigurasi.');
+            return redirect()->back()->with('warning', 'Struk thermal gagal dicetak: '.$exception->getMessage());
         }
     }
 
@@ -508,8 +561,11 @@ class TransactionController extends Controller
     {
         $transaction->loadMissing(['user', 'details.product']);
         $subtotal = (int) $transaction->details->sum(fn ($detail): int => (int) $detail->harga * (int) $detail->qty);
+        $text = app(ThermalReceiptText::class)->text($transaction, feedLines: 1);
 
         return [
+            'text' => $text,
+            'rawbt_url' => 'rawbt:base64,'.base64_encode($text),
             'settings' => AppSetting::receiptSettings(),
             'transaction' => [
                 'code' => $transaction->kode_transaksi,
@@ -561,7 +617,7 @@ class TransactionController extends Controller
                 'size' => '58mm',
                 'label' => '58mm Thermal',
                 'paper' => [0, 0, 164.41, 841.89],
-                'page_css' => '58mm 297mm',
+                'page_css' => '58mm 1000mm',
                 'receipt_width' => '58mm',
                 'receipt_padding' => '10px',
                 'font_size' => '10.5px',
@@ -571,7 +627,7 @@ class TransactionController extends Controller
                 'size' => '80mm',
                 'label' => '80mm Thermal',
                 'paper' => [0, 0, 226.77, 841.89],
-                'page_css' => '80mm 297mm',
+                'page_css' => '80mm 1000mm',
                 'receipt_width' => '80mm',
                 'receipt_padding' => '14px',
                 'font_size' => '12px',

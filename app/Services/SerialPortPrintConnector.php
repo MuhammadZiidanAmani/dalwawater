@@ -34,20 +34,16 @@ class SerialPortPrintConnector implements PrintConnector
         }
 
         $dataFile = tempnam(sys_get_temp_dir(), 'escpos-data-');
-        $scriptFile = tempnam(sys_get_temp_dir(), 'escpos-serial-').'.ps1';
 
-        if ($dataFile === false || $scriptFile === false) {
+        if ($dataFile === false) {
             throw new RuntimeException('Gagal membuat file sementara untuk cetak serial.');
         }
 
         file_put_contents($dataFile, $this->buffer);
-        file_put_contents($scriptFile, $this->powershellScript($dataFile));
-
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -File '.escapeshellarg($scriptFile);
+        $command = 'cmd /c print /D:'.$this->printDevice().' '.escapeshellarg($dataFile);
         exec($command, $output, $exitCode);
 
         @unlink($dataFile);
-        @unlink($scriptFile);
 
         $this->finalized = true;
 
@@ -70,26 +66,10 @@ class SerialPortPrintConnector implements PrintConnector
         $this->buffer .= $data;
     }
 
-    private function powershellScript(string $dataFile): string
+    private function printDevice(): string
     {
-        $port = $this->psQuote(strtoupper($this->port));
-        $file = $this->psQuote($dataFile);
-        $baud = $this->baud;
+        $port = strtoupper($this->port);
 
-        return <<<POWERSHELL
-\$ErrorActionPreference = 'Stop'
-\$bytes = [System.IO.File]::ReadAllBytes($file)
-\$serial = New-Object System.IO.Ports.SerialPort $port, $baud, 'None', 8, 'One'
-\$serial.WriteTimeout = 5000
-\$serial.ReadTimeout = 5000
-\$serial.Open()
-\$serial.Write(\$bytes, 0, \$bytes.Length)
-\$serial.Close()
-POWERSHELL;
-    }
-
-    private function psQuote(string $value): string
-    {
-        return "'".str_replace("'", "''", $value)."'";
+        return str_ends_with($port, ':') ? $port : $port.':';
     }
 }

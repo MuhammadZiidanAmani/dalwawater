@@ -43,6 +43,9 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/transactions/{transaction}/receipt-pdf', [TransactionController::class, 'receiptPdf'])
         ->name('transactions.receipt-pdf');
 
+    Route::get('/transactions/{transaction}/receipt-jpeg', [TransactionController::class, 'receiptJpeg'])
+        ->name('transactions.receipt-jpeg');
+
     Route::get('/transactions/{transaction}/thermal-payload', [TransactionController::class, 'thermalPayload'])
         ->name('transactions.thermal-payload');
 

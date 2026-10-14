@@ -39,18 +39,30 @@ class DashboardController extends Controller
         $filters = $request->validated();
 
         $selectedPage = $filters['page'] ?? 'dashboard';
+        $selectedReportScope = $filters['report_scope'] ?? 'month';
         $selectedPeriodMonth = $filters['period_month'] ?? Carbon::today()->format('Y-m');
         $periodStart = Carbon::createFromFormat('Y-m', $selectedPeriodMonth)->startOfMonth();
         $periodEnd = $periodStart->copy()->endOfMonth();
+        $reportPeriodStart = match ($selectedReportScope) {
+            'year' => $periodStart->copy()->startOfYear(),
+            'all' => null,
+            default => $periodStart,
+        };
+        $reportPeriodEnd = match ($selectedReportScope) {
+            'year' => $periodStart->copy()->endOfYear(),
+            'all' => null,
+            default => $periodEnd,
+        };
         $defaultStartDate = Carbon::today()->toDateString();
         $defaultEndDate = Carbon::today()->toDateString();
-        $startDate = $selectedPage === 'history' ? $periodStart->toDateString() : ($filters['start_date'] ?? $defaultStartDate);
-        $endDate = $selectedPage === 'history' ? $periodEnd->toDateString() : ($filters['end_date'] ?? $defaultEndDate);
+        $startDate = $selectedPage === 'history' ? $reportPeriodStart?->toDateString() : ($filters['start_date'] ?? $defaultStartDate);
+        $endDate = $selectedPage === 'history' ? $reportPeriodEnd?->toDateString() : ($filters['end_date'] ?? $defaultEndDate);
         $selectedUserId = $request->user()?->isAdmin() ? ($filters['user_id'] ?? null) : null;
         $selectedPaymentStatus = $filters['payment_status'] ?? null;
         $selectedPaymentType = $filters['payment_type'] ?? null;
-        $start = Carbon::parse($startDate)->startOfDay();
-        $end = Carbon::parse($endDate)->endOfDay();
+        $hasDateRange = $startDate && $endDate;
+        $start = $hasDateRange ? Carbon::parse($startDate)->startOfDay() : Carbon::today()->startOfDay();
+        $end = $hasDateRange ? Carbon::parse($endDate)->endOfDay() : Carbon::today()->endOfDay();
 
         $products = Product::orderBy('nama_barang')->get();
         $activeProducts = Product::where('status', 'active')->orderBy('nama_barang')->get();
@@ -67,8 +79,8 @@ class DashboardController extends Controller
             ->first();
 
         $rangeTransactionsQuery = Transaction::visibleTo($request->user())
-            ->whereBetween('created_at', [$start, $end])
             ->where('status', '!=', 'void')
+            ->when($hasDateRange, fn ($query) => $query->whereBetween('created_at', [$start, $end]))
             ->when($selectedUserId, fn ($query) => $query->where('user_id', $selectedUserId))
             ->when($selectedPaymentStatus, fn ($query) => $query->where('payment_status', $selectedPaymentStatus))
             ->when($selectedPaymentType, fn ($query) => $query->where('payment_type', $selectedPaymentType));
@@ -112,7 +124,14 @@ class DashboardController extends Controller
                 'count' => $grossProfit - $expense,
             ];
         });
-        $financialChart = $metrics->financialChart($request->user(), $periodStart, $periodEnd);
+        $financialChartStart = $selectedReportScope === 'all' ? $this->allReportPeriodStart($request->user()) : ($reportPeriodStart ?? $periodStart);
+        $financialChartEnd = $selectedReportScope === 'all' ? Carbon::today()->endOfMonth() : ($reportPeriodEnd ?? $periodEnd);
+        $financialChart = $metrics->financialChart(
+            $request->user(),
+            $financialChartStart,
+            $financialChartEnd,
+            $selectedReportScope === 'month' ? 'day' : 'month',
+        );
 
         $cashiers = User::whereIn('role', ['admin', 'cashier'])
             ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())->where('status', '!=', 'void')->where('payment_status', 'paid')], 'total')
@@ -123,9 +142,11 @@ class DashboardController extends Controller
         $monthlyProductSales = Product::query()
             ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
             ->leftJoin('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
-            ->where(function ($query) use ($start, $end) {
-                $query->whereNull('transactions.id')
-                    ->orWhereBetween('transactions.created_at', [$start, $end]);
+            ->when($hasDateRange, function ($query) use ($start, $end) {
+                $query->where(function ($query) use ($start, $end) {
+                    $query->whereNull('transactions.id')
+                        ->orWhereBetween('transactions.created_at', [$start, $end]);
+                });
             })
             ->where(function ($query) {
                 $query->whereNull('transactions.id')
@@ -146,8 +167,8 @@ class DashboardController extends Controller
             ->where('status', '!=', 'void');
 
         $periodTransactionsQuery = Transaction::visibleTo($request->user())
-            ->whereBetween('created_at', [$start, $end])
-            ->where('status', '!=', 'void');
+            ->where('status', '!=', 'void')
+            ->when($hasDateRange, fn ($query) => $query->whereBetween('created_at', [$start, $end]));
 
         $stats = [
             'total_stock' => Product::sum('stok'),
@@ -183,7 +204,7 @@ class DashboardController extends Controller
         $reportBaseQuery = Transaction::visibleTo($request->user())
             ->where('status', '!=', 'void');
 
-        if ($startDate && $endDate) {
+        if ($hasDateRange) {
             $start = Carbon::parse($startDate)->startOfDay();
             $end = Carbon::parse($endDate)->endOfDay();
 
@@ -215,15 +236,14 @@ class DashboardController extends Controller
             : collect();
         $purchaseHistory = $request->user()->isAdmin()
             ? StockIn::with('product')
-                ->whereBetween('tanggal', [$startDate, $endDate])
+                ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]))
                 ->orderByDesc('tanggal')
                 ->orderByDesc('id')
                 ->get()
             : collect();
         $expenses = $request->user()->isAdmin()
             ? Expense::with('user')
-                ->whereDate('spent_at', '>=', $startDate)
-                ->whereDate('spent_at', '<=', $endDate)
+                ->when($hasDateRange, fn ($query) => $query->whereDate('spent_at', '>=', $startDate)->whereDate('spent_at', '<=', $endDate))
                 ->orderByDesc('spent_at')
                 ->orderByDesc('id')
                 ->get()
@@ -235,7 +255,8 @@ class DashboardController extends Controller
         $reportCapital = $metrics->transactionCapital(clone $reportPaidQuery);
         $reportGrossProfit = $metrics->transactionProfit(clone $reportPaidQuery);
         $reportNetProfit = $reportGrossProfit - $expenseTotal;
-        $reportPurchaseQuery = StockIn::query()->whereBetween('tanggal', [$startDate, $endDate]);
+        $reportPurchaseQuery = StockIn::query()
+            ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]));
         $reportPurchaseTotal = $request->user()->isAdmin() ? $metrics->purchaseTotal(clone $reportPurchaseQuery) : 0;
         $reportPurchaseQty = $request->user()->isAdmin() ? (int) (clone $reportPurchaseQuery)->sum('qty') : 0;
         $dailyTransactionsQuery = Transaction::visibleTo($request->user())
@@ -310,6 +331,7 @@ class DashboardController extends Controller
             'startDate' => $startDate,
             'endDate' => $endDate,
             'selectedPeriodMonth' => $selectedPeriodMonth,
+            'selectedReportScope' => $selectedReportScope,
             'selectedUserId' => $selectedUserId,
             'selectedPaymentStatus' => $selectedPaymentStatus,
             'selectedPaymentType' => $selectedPaymentType,
@@ -325,5 +347,25 @@ class DashboardController extends Controller
             'stockOpnames' => $stockOpnames,
             'auditLogs' => $auditLogs,
         ]);
+    }
+
+    private function allReportPeriodStart(User $user): Carbon
+    {
+        $dates = collect([
+            Transaction::visibleTo($user)
+                ->where('status', '!=', 'void')
+                ->min('created_at'),
+            $user->isAdmin() ? Expense::min('spent_at') : null,
+            $user->isAdmin() ? StockIn::min('tanggal') : null,
+        ])->filter();
+
+        if ($dates->isEmpty()) {
+            return Carbon::today()->startOfMonth();
+        }
+
+        return $dates
+            ->map(fn ($date) => Carbon::parse($date)->startOfMonth())
+            ->sortBy(fn (Carbon $date) => $date->timestamp)
+            ->first();
     }
 }

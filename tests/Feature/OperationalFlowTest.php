@@ -68,8 +68,11 @@ class OperationalFlowTest extends TestCase
             ->get(route('transactions.receipt', ['transaction' => $transaction, 'size' => '58mm']))
             ->assertOk()
             ->assertSee('DALWA WATER TEGAL')
-            ->assertSee('Download PDF')
-            ->assertSee('58mm Thermal');
+            ->assertSee('Cetak Thermal')
+            ->assertSee('Kembali')
+            ->assertDontSee('Download PDF')
+            ->assertDontSee('Download JPEG')
+            ->assertDontSee('58mm Thermal');
 
         $pdfResponse = $this->actingAs($cashier)
             ->get(route('transactions.receipt-pdf', ['transaction' => $transaction, 'size' => 'a5']))
@@ -148,7 +151,7 @@ class OperationalFlowTest extends TestCase
                 'harga_beli' => 3000,
                 'harga_jual' => 5000,
             ])
-            ->assertRedirect(route('dashboard', ['page' => 'stock']));
+            ->assertRedirect(route('dashboard', ['page' => 'purchases']));
 
         $this->assertSame(14, $product->fresh()->stok);
         $this->assertDatabaseHas('stock_ins', [

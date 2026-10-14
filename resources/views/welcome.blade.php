@@ -92,6 +92,7 @@
             'kembalian' => (int) $transaction->kembalian,
             'receipt_url' => route('transactions.receipt', $transaction),
             'receipt_pdf_url' => route('transactions.receipt-pdf', $transaction),
+            'receipt_jpeg_url' => route('transactions.receipt-jpeg', $transaction),
             'thermal_receipt_url' => route('transactions.thermal-receipt', $transaction),
             'thermal_payload_url' => route('transactions.thermal-payload', $transaction),
             'update_url' => (auth()->user()->isAdmin() || auth()->id() === $transaction->user_id) ? route('transactions.update', $transaction) : null,
@@ -284,6 +285,7 @@
             ])->values(),
             'filters' => [
                 'period_month' => $selectedPeriodMonth ?? null,
+                'report_scope' => $selectedReportScope ?? null,
                 'start_date' => $startDate ?? null,
                 'end_date' => $endDate ?? null,
                 'user_id' => $selectedUserId ?? null,

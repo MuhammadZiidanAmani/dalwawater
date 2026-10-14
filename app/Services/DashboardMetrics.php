@@ -35,15 +35,20 @@ class DashboardMetrics
             ->value('total_purchase');
     }
 
-    public function financialChart(User $user, Carbon $periodStart, Carbon $periodEnd): Collection
+    public function financialChart(User $user, Carbon $periodStart, Carbon $periodEnd, string $groupBy = 'day'): Collection
     {
+        $groupBy = $groupBy === 'month' ? 'month' : 'day';
+        $transactionPeriodExpression = $this->periodExpression('created_at', $groupBy);
+        $detailPeriodExpression = $this->periodExpression('transactions.created_at', $groupBy);
+        $expensePeriodExpression = $this->periodExpression('spent_at', $groupBy);
+
         $baseTransactions = Transaction::visibleTo($user)
             ->whereBetween('created_at', [$periodStart->copy()->startOfDay(), $periodEnd->copy()->endOfDay()])
             ->where('status', '!=', 'void')
             ->where('payment_status', 'paid');
 
         $incomeByDate = (clone $baseTransactions)
-            ->selectRaw('DATE(created_at) as date_key, COALESCE(SUM(total), 0) as income')
+            ->selectRaw($transactionPeriodExpression.' as date_key, COALESCE(SUM(total), 0) as income')
             ->groupBy('date_key')
             ->pluck('income', 'date_key')
             ->map(fn ($value): int => (int) $value);
@@ -52,7 +57,7 @@ class DashboardMetrics
             ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
             ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->whereIn('transactions.id', (clone $baseTransactions)->select('transactions.id'))
-            ->selectRaw('DATE(transactions.created_at) as date_key')
+            ->selectRaw($detailPeriodExpression.' as date_key')
             ->selectRaw('COALESCE(SUM(products.harga_modal * transaction_details.qty), 0) as capital')
             ->selectRaw('COALESCE(SUM('.$this->grossProfitExpression().'), 0) as gross_profit')
             ->groupBy('date_key')
@@ -63,16 +68,17 @@ class DashboardMetrics
             ? Expense::query()
                 ->whereDate('spent_at', '>=', $periodStart->toDateString())
                 ->whereDate('spent_at', '<=', $periodEnd->toDateString())
-                ->selectRaw('spent_at as date_key, COALESCE(SUM(amount), 0) as expense')
+                ->selectRaw($expensePeriodExpression.' as date_key, COALESCE(SUM(amount), 0) as expense')
                 ->groupBy('date_key')
                 ->pluck('expense', 'date_key')
                 ->map(fn ($value): int => (int) $value)
             : collect();
 
-        return collect(range(0, (int) $periodStart->diffInDays($periodEnd)))
-            ->map(function (int $daysAfter) use ($periodStart, $incomeByDate, $detailByDate, $expenseByDate): array {
-                $day = $periodStart->copy()->addDays($daysAfter);
-                $dateKey = $day->toDateString();
+        $periods = $this->chartPeriods($periodStart, $periodEnd, $groupBy);
+
+        return $periods
+            ->map(function (Carbon $period) use ($groupBy, $incomeByDate, $detailByDate, $expenseByDate): array {
+                $dateKey = $groupBy === 'month' ? $period->format('Y-m') : $period->toDateString();
                 $detail = $detailByDate->get($dateKey);
                 $income = (int) ($incomeByDate[$dateKey] ?? 0);
                 $expense = (int) ($expenseByDate[$dateKey] ?? 0);
@@ -80,7 +86,7 @@ class DashboardMetrics
                 $grossProfit = (int) ($detail?->gross_profit ?? 0);
 
                 return [
-                    'label' => $day->translatedFormat('d M'),
+                    'label' => $groupBy === 'month' ? $period->translatedFormat('M y') : $period->translatedFormat('d M'),
                     'income' => $income,
                     'expense' => $expense,
                     'capital' => $capital,
@@ -88,6 +94,34 @@ class DashboardMetrics
                     'net_profit' => $grossProfit - $expense,
                 ];
             });
+    }
+
+    private function periodExpression(string $column, string $groupBy): string
+    {
+        if ($groupBy === 'day') {
+            return 'DATE('.$column.')';
+        }
+
+        return DB::connection()->getDriverName() === 'sqlite'
+            ? "strftime('%Y-%m', ".$column.')'
+            : 'DATE_FORMAT('.$column.", '%Y-%m')";
+    }
+
+    /**
+     * @return Collection<int, Carbon>
+     */
+    private function chartPeriods(Carbon $periodStart, Carbon $periodEnd, string $groupBy): Collection
+    {
+        $periods = collect();
+        $cursor = $groupBy === 'month' ? $periodStart->copy()->startOfMonth() : $periodStart->copy()->startOfDay();
+        $last = $groupBy === 'month' ? $periodEnd->copy()->startOfMonth() : $periodEnd->copy()->startOfDay();
+
+        while ($cursor->lte($last)) {
+            $periods->push($cursor->copy());
+            $groupBy === 'month' ? $cursor->addMonth() : $cursor->addDay();
+        }
+
+        return $periods;
     }
 
     private function grossProfitExpression(): string

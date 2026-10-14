@@ -47,6 +47,7 @@ type Transaction = {
     kembalian: number;
     receipt_url: string;
     receipt_pdf_url: string;
+    receipt_jpeg_url: string;
     thermal_receipt_url: string;
     thermal_payload_url: string;
     update_url: string | null;
@@ -302,6 +303,13 @@ const normalizePeriodMonth = (period: string | null | undefined) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 };
 
+const monthLabel = (period: string) => {
+    const [year, month] = period.split('-').map(Number);
+    const date = new Date(year, (month || 1) - 1, 1);
+
+    return date.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+};
+
 type SortDirection = 'asc' | 'desc';
 
 const compareText = (first: string | number | null | undefined, second: string | number | null | undefined) => (
@@ -502,6 +510,14 @@ function NavIcon({ name }: { name: string }) {
 
     if (name === 'print') {
         return <svg {...common}><path d="M7 8V4h10v4" /><path d="M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" /><path d="M7 14h10v6H7z" /><path d="M17 12h.01" /></svg>;
+    }
+
+    if (name === 'image') {
+        return <svg {...common}><rect x="4" y="5" width="16" height="14" rx="2" /><path d="m4 15 4-4 4 4 2-2 6 6" /><circle cx="15" cy="10" r="1.2" /></svg>;
+    }
+
+    if (name === 'download') {
+        return <svg {...common}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>;
     }
 
     if (name === 'cancel') {
@@ -1126,6 +1142,13 @@ function Transactions({ props }: { props: AppProps }) {
 
         const payload = await response.json().catch(() => null);
 
+        if (payload?.receipt_url) {
+            const receiptUrl = new URL(payload.receipt_url, window.location.origin);
+            receiptUrl.searchParams.set('autoprint', '1');
+            window.location.href = receiptUrl.toString();
+            return;
+        }
+
         window.location.href = payload?.redirect_url || props.routes.dashboard || '/';
     };
 
@@ -1330,9 +1353,20 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
     );
 }
 
+type StockStatusFilter = 'all' | 'safe' | 'low' | 'empty';
+
+function getStockStatus(product: Product): Exclude<StockStatusFilter, 'all'> {
+    if (product.stok <= 0) {
+        return 'empty';
+    }
+
+    return product.stok <= product.stok_minimal ? 'low' : 'safe';
+}
+
 function StockPage({ props }: { props: AppProps }) {
     const [category, setCategory] = useState('Semua kategori');
     const [productId, setProductId] = useState('Semua produk');
+    const [stockStatus, setStockStatus] = useState<StockStatusFilter>('all');
     const [query, setQuery] = useState('');
     const stockCategories = [
         'Semua kategori',
@@ -1345,13 +1379,32 @@ function StockPage({ props }: { props: AppProps }) {
         'Semua produk',
         ...props.products.map((product) => String(product.id)),
     ];
+    const stockStatusOptions: Array<{ value: StockStatusFilter; label: string }> = [
+        { value: 'all', label: 'Semua status' },
+        { value: 'safe', label: 'Aman' },
+        { value: 'low', label: 'Menipis' },
+        { value: 'empty', label: 'Habis' },
+    ];
     const filteredProducts = props.products.filter((product) => {
         const matchesCategory = category === 'Semua kategori' || product.kategori === category;
         const matchesProduct = productId === 'Semua produk' || String(product.id) === productId;
+        const matchesStatus = stockStatus === 'all' || getStockStatus(product) === stockStatus;
         const matchesKeyword = matchesSearchText(`${product.nama_barang} ${product.kode_barang ?? ''} ${product.kategori ?? ''}`, query);
 
-        return matchesCategory && matchesProduct && matchesKeyword;
+        return matchesCategory && matchesProduct && matchesStatus && matchesKeyword;
     });
+    const stockSummary = {
+        products: filteredProducts.length,
+        total: filteredProducts.reduce((sum, product) => sum + product.stok, 0),
+        low: filteredProducts.filter((product) => getStockStatus(product) === 'low').length,
+        empty: filteredProducts.filter((product) => getStockStatus(product) === 'empty').length,
+    };
+    const summaryItems = [
+        { label: 'Total Produk', value: stockSummary.products, helper: 'Produk tampil', color: 'text-primary', accent: 'bg-primary' },
+        { label: 'Total Stok', value: stockSummary.total, helper: 'Unit tersedia', color: 'text-success', accent: 'bg-success' },
+        { label: 'Stok Menipis', value: stockSummary.low, helper: 'Perlu dicek', color: 'text-warning', accent: 'bg-warning' },
+        { label: 'Stok Habis', value: stockSummary.empty, helper: 'Perlu restock', color: 'text-error', accent: 'bg-error' },
+    ];
 
     return (
         <section className="grid gap-6">
@@ -1362,8 +1415,23 @@ function StockPage({ props }: { props: AppProps }) {
                 </div>
             </div>
 
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {summaryItems.map((item) => (
+                    <div className="relative min-h-28 overflow-hidden rounded-xl border border-ld bg-card p-5 shadow-xs" key={item.label}>
+                        <span className={`absolute inset-y-0 left-0 w-1 ${item.accent}`} aria-hidden="true" />
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                                <p className="text-sm font-semibold text-muted-foreground">{item.label}</p>
+                                <strong className={`mt-4 block text-3xl font-bold leading-none ${item.color}`}>{item.value.toLocaleString('id-ID')}</strong>
+                            </div>
+                            <span className="rounded-md border border-ld bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">{item.helper}</span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
             <Card>
-                <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(180px,260px)_minmax(180px,260px)_minmax(360px,1fr)]">
+                <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(170px,230px)_minmax(170px,230px)_minmax(160px,200px)_minmax(280px,1fr)]">
                     <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter kategori stok">
                         {stockCategories.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
@@ -1373,6 +1441,9 @@ function StockPage({ props }: { props: AppProps }) {
 
                             return <option key={item} value={item}>{product?.nama_barang ?? item}</option>;
                         })}
+                    </select>
+                    <select className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" value={stockStatus} onChange={(event) => setStockStatus(event.target.value as StockStatusFilter)} aria-label="Filter status stok">
+                        {stockStatusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                     </select>
                     <div className="flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4 focus-within:border-primary">
                         <svg className="size-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" /></svg>
@@ -2219,7 +2290,6 @@ function Operations({ onCreate, onEdit, props }: { props: AppProps; onCreate?: (
 
         return matchesKeyword;
     });
-    const totalExpense = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     const startDate = props.filters.start_date ?? todayInputDate();
     const endDate = props.filters.end_date ?? todayInputDate();
 
@@ -2230,12 +2300,7 @@ function Operations({ onCreate, onEdit, props }: { props: AppProps; onCreate?: (
                     <h1 className="text-2xl font-semibold leading-8 text-foreground">Pengeluaran</h1>
                     <p className="text-sm text-muted-foreground">Kelola uraian, volume, harga, jumlah, dan keterangan pengeluaran.</p>
                 </div>
-                {props.user.isAdmin && <div className="flex flex-wrap gap-2">{props.routes.expensesPrint && <a className="inline-flex h-10 items-center justify-center rounded-sm bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.expensesPrint} target="_blank">Cetak</a>}<Button variant="primary" onClick={onCreate}>Tambah</Button></div>}
-            </div>
-
-            <div className="grid gap-5 md:grid-cols-2">
-                <MetricCard label="Total Pengeluaran" value={totalExpense} unit="Rp" />
-                <MetricCard label="Jumlah Pengeluaran" value={filteredExpenses.length} unit="Data" />
+                {props.user.isAdmin && <Button variant="primary" onClick={onCreate}>Tambah</Button>}
             </div>
 
             <Card>
@@ -2317,6 +2382,13 @@ function ExpenseForm({ expense, onBack, props }: { expense?: Expense; onBack: ()
 
 function ReportPage({ props }: { props: AppProps }) {
     const selectedPeriod = normalizePeriodMonth(props.filters.period_month);
+    const selectedReportScope = props.filters.report_scope === 'year' || props.filters.report_scope === 'all' ? props.filters.report_scope : 'month';
+    const selectedYear = selectedPeriod.slice(0, 4);
+    const periodLabel = selectedReportScope === 'all'
+        ? 'Semua periode'
+        : selectedReportScope === 'year'
+            ? `Tahun ${selectedYear}`
+            : monthLabel(selectedPeriod);
     const expenseTotal = Number(props.reportStats.expense_total ?? props.expenses.reduce((sum, expense) => sum + expense.amount, 0));
     const incomeTotal = Number(props.reportStats.income ?? 0);
     const capitalTotal = Number(props.reportStats.capital ?? 0);
@@ -2334,29 +2406,34 @@ function ReportPage({ props }: { props: AppProps }) {
     const expenseRatio = incomeTotal > 0 ? Number(((expenseTotal / incomeTotal) * 100).toFixed(1)) : 0;
     const cashFlowAfterExpense = incomeTotal - expenseTotal;
     const bestProduct = topProducts[0] ?? null;
+    const periodText = selectedReportScope === 'all' ? 'semua periode' : 'periode ini';
     const insights = [
-        netProfit >= 0 ? `Laba bersih periode ini positif sebesar ${rupiah(netProfit)}.` : `Laba bersih periode ini minus sebesar ${rupiah(Math.abs(netProfit))}.`,
-        bestProduct ? `Produk paling laris: ${bestProduct.name} (${bestProduct.qty.toLocaleString('id-ID')} terjual).` : 'Belum ada produk terjual pada periode ini.',
-        pendingIncome > 0 ? `Piutang masih ${rupiah(pendingIncome)} dan perlu ditagih.` : 'Tidak ada piutang pada periode ini.',
-        biggestExpense ? `Pengeluaran terbesar: ${biggestExpense.uraian} sebesar ${rupiah(biggestExpense.amount)}.` : 'Belum ada pengeluaran pada periode ini.',
+        netProfit >= 0 ? `Laba bersih ${periodText} positif sebesar ${rupiah(netProfit)}.` : `Laba bersih ${periodText} minus sebesar ${rupiah(Math.abs(netProfit))}.`,
+        bestProduct ? `Produk paling laris: ${bestProduct.name} (${bestProduct.qty.toLocaleString('id-ID')} terjual).` : `Belum ada produk terjual pada ${periodText}.`,
+        pendingIncome > 0 ? `Piutang masih ${rupiah(pendingIncome)} dan perlu ditagih.` : `Tidak ada piutang pada ${periodText}.`,
+        biggestExpense ? `Pengeluaran terbesar: ${biggestExpense.uraian} sebesar ${rupiah(biggestExpense.amount)}.` : `Belum ada pengeluaran pada ${periodText}.`,
     ];
     return (
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Laporan</h1><p className="text-sm text-muted-foreground">Analisa keuangan dan performa toko</p></div>
+                <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Laporan</h1><p className="text-sm text-muted-foreground">Analisa keuangan dan performa toko - {periodLabel}</p></div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-                    <form className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center" method="GET" action={props.routes.dashboard ?? ''}>
+                    <form className="flex w-full flex-col gap-3 sm:w-auto lg:flex-row lg:items-center" method="GET" action={props.routes.dashboard ?? ''}>
                         <input type="hidden" name="page" value="history" />
                         <label className="flex items-center gap-3">
                             <span className="text-sm font-semibold text-link dark:text-white">Periode</span>
                             <input
-                                className="h-10 w-52 rounded-sm border border-ld bg-transparent px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+                                className="h-10 w-full rounded-sm border border-ld bg-transparent px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary sm:w-52"
                                 name="period_month"
                                 type="month"
                                 defaultValue={selectedPeriod}
                             />
                         </label>
-                        <Button type="submit">Terapkan</Button>
+                        <div className="grid grid-cols-3 gap-2">
+                            <button className={`inline-flex h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${selectedReportScope === 'month' ? 'bg-primary text-white' : 'border border-ld bg-card text-foreground hover:bg-muted'}`} name="report_scope" type="submit" value="month">Filter</button>
+                            <button className={`inline-flex h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${selectedReportScope === 'year' ? 'bg-primary text-white' : 'border border-ld bg-card text-foreground hover:bg-muted'}`} name="report_scope" type="submit" value="year">Tahun</button>
+                            <button className={`inline-flex h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${selectedReportScope === 'all' ? 'bg-primary text-white' : 'border border-ld bg-card text-foreground hover:bg-muted'}`} name="report_scope" type="submit" value="all">Semua</button>
+                        </div>
                     </form>
                     {props.routes.transactionsExportPdf && <a className="inline-flex h-10 items-center justify-center rounded-md bg-lightprimary px-4 py-2 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15" href={props.routes.transactionsExportPdf}>Cetak Laporan</a>}
                 </div>
@@ -3406,16 +3483,33 @@ function StockTable({ products }: { products: Product[] }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {sortedProducts.length ? sortedProducts.map((product, index) => (
-                        <tr key={product.id}>
-                            <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
-                            <td className="!text-center font-medium text-foreground">{product.kode_barang || '-'}</td>
-                            <td className="!text-left">
-                                <strong className="text-foreground">{product.nama_barang}</strong>
-                            </td>
-                            <td className="!text-center font-semibold text-foreground">{product.stok}</td>
-                        </tr>
-                    )) : <tr><td className="text-center text-muted-foreground" colSpan={4}>Belum ada stok yang cocok.</td></tr>}
+                    {sortedProducts.length ? sortedProducts.map((product, index) => {
+                        const status = getStockStatus(product);
+                        const badgeVariant = status === 'empty' ? 'red' : status === 'low' ? 'amber' : 'green';
+                        const statusLabel = status === 'empty' ? 'Habis' : status === 'low' ? 'Menipis' : 'Aman';
+                        const rowClass = status === 'empty'
+                            ? 'bg-error/10 hover:bg-error/15'
+                            : status === 'low'
+                                ? 'bg-warning/10 hover:bg-warning/15'
+                                : '';
+
+                        return (
+                            <tr className={rowClass} key={product.id}>
+                                <td className="!text-center font-medium text-muted-foreground">{index + 1}</td>
+                                <td className="!text-center font-medium text-foreground">{product.kode_barang || '-'}</td>
+                                <td className="!text-left">
+                                    <strong className="text-foreground">{product.nama_barang}</strong>
+                                    <div className="mt-1 text-xs font-medium text-muted-foreground">{product.kategori || 'Tanpa kategori'}</div>
+                                </td>
+                                <td className="!text-center">
+                                    <Badge className="min-w-24 gap-1.5 px-3 py-1.5 font-bold" variant={badgeVariant}>
+                                        <span>{product.stok.toLocaleString('id-ID')}</span>
+                                        <span>{statusLabel}</span>
+                                    </Badge>
+                                </td>
+                            </tr>
+                        );
+                    }) : <tr><td className="text-center text-muted-foreground" colSpan={4}>Belum ada stok yang cocok.</td></tr>}
                 </tbody>
             </table>
         </DataTable>
@@ -3614,7 +3708,7 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
                         <th><SortableHeader column="method" label="Metode" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                         <th><SortableHeader column="status" label="Status" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
                         <th className="!text-right"><SortableHeader align="right" column="total" label="Total" sortDirection={sortDirection} sortKey={sortKey} onSort={toggleSort} /></th>
-                        <th className="w-20 text-center">Aksi</th>
+                        <th className="w-24 text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3646,12 +3740,13 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
                                 <td><Badge className="rounded-full px-3 py-1" variant={badgeVariant}>{isVoid ? 'Batal' : transaction.payment_status === 'paid' ? 'Lunas' : 'Belum Bayar'}</Badge></td>
                                 <td className="!text-right font-bold text-foreground whitespace-nowrap">{rupiah(transaction.total)}</td>
                                 <td>
-                                    <div className="flex items-center justify-center gap-1">
-                                        {transaction.update_url && onEdit && !isVoid && <button className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" type="button" title="Edit" aria-label={`Edit ${transaction.kode_transaksi}`} onClick={() => onEdit(transaction)}><NavIcon name="edit" /></button>}
-                                        <a className="grid size-8 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-4" href={transaction.receipt_url} target="_blank" rel="noreferrer" title="Preview nota" aria-label={`Preview nota ${transaction.kode_transaksi}`}><NavIcon name="print" /></a>
+                                    <div className="flex items-center justify-center gap-0.5">
+                                        {transaction.update_url && onEdit && !isVoid && <button className="grid size-7 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-3.5" type="button" title="Edit" aria-label={`Edit ${transaction.kode_transaksi}`} onClick={() => onEdit(transaction)}><NavIcon name="edit" /></button>}
+                                        <a className="grid size-7 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-3.5" href={transaction.receipt_url} target="_blank" rel="noreferrer" title="Preview nota" aria-label={`Preview nota ${transaction.kode_transaksi}`}><NavIcon name="print" /></a>
+                                        <a className="grid size-7 place-items-center rounded-full text-success transition hover:bg-lightsuccess [&_svg]:size-3.5" href={transaction.receipt_jpeg_url} title="Download JPEG" aria-label={`Download JPEG ${transaction.kode_transaksi}`}><NavIcon name="download" /></a>
                                         {!isVoid && transaction.payment_status === 'pending' && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.settle_url, csrf, { _method: 'PUT', payment_type: 'cash', uang_diterima: transaction.total })}>Lunasi</button>}
                                         {showCashier && !isVoid && transaction.payment_type === 'transfer' && transaction.payment_status === 'paid' && !transaction.payment_verified_at && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.verify_transfer_url, csrf, { _method: 'PUT' })}>Verifikasi</button>}
-                                        {showCashier && !isVoid && <button className="grid size-8 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-4" type="button" title="Hapus" aria-label={`Hapus ${transaction.kode_transaksi}`} onClick={() => deleteTransaction(transaction)}><NavIcon name="trash" /></button>}
+                                        {showCashier && !isVoid && <button className="grid size-7 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-3.5" type="button" title="Hapus" aria-label={`Hapus ${transaction.kode_transaksi}`} onClick={() => deleteTransaction(transaction)}><NavIcon name="trash" /></button>}
                                     </div>
                                 </td>
                             </tr>
