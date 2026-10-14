@@ -24,10 +24,10 @@
         .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
         .panel h1{margin:0;color:#fff;font-size:24px;line-height:32px;font-weight:700}
         .panel p{margin:4px 0 0;color:#8ea7d0;font-size:15px}
-        .receipt-summary{display:grid;gap:10px;margin-top:22px}
-        .receipt-summary div{display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid #2d3b55;border-radius:8px;background:#1a2538;padding:12px 14px}
-        .receipt-summary span{color:#8ea7d0;font-size:13px;font-weight:700}
-        .receipt-summary strong{color:#fff;font-size:14px;text-align:right}
+        .print-size{display:grid;gap:10px;margin-top:18px}
+        .print-size label{color:#8ea7d0;font-size:13px;font-weight:700}
+        .print-size select{width:100%;min-height:46px;border:1px solid #2d3b55;border-radius:8px;background:#172033;color:#f8fafc;padding:11px 14px;font-size:14px;font-weight:700;outline:none}
+        .print-size select:focus{border-color:#5d87ff}
         .meta{display:grid;gap:0;margin:22px 0;padding:0;border:1px solid #2d3b55;border-radius:8px;background:#1a2538;overflow:hidden}
         .meta-row{display:flex;align-items:center;justify-content:space-between;gap:16px;color:#8ea7d0;font-size:14px;font-weight:700;padding:14px 16px;border-bottom:1px solid #2d3b55}
         .meta-row:last-child{border-bottom:0}
@@ -43,6 +43,8 @@
         .btn.primary:hover{background:#4f78ef;color:white}
         .btn.compact{min-height:38px;padding:8px 14px;white-space:nowrap}
         .btn.full{grid-column:1/-1}
+        .rawbt-action{display:none}
+        .rawbt-action.show{display:inline-flex}
         .hint{margin-top:14px;border:1px solid #2d3b55;border-radius:8px;background:#1a2538;color:#8ea7d0;padding:12px 14px;font-size:13px;font-weight:700}
         .notice{border-radius:8px;margin:0 0 12px;padding:12px 14px;font-size:13px;font-weight:700}.notice.ok{background:#0f3f3a;color:#2dd4bf}.notice.warn{background:#3c2f16;color:#fbbf24}
         .paper-stage{min-width:0;display:grid;justify-items:center;padding:28px;border:1px solid #2d3b55;border-radius:8px;background:#172033;box-shadow:none}

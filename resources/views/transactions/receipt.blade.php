@@ -37,21 +37,6 @@
                     <a class="btn compact" href="{{ route('dashboard', ['page' => 'transaction-history']) }}">Kembali</a>
                 </div>
 
-                <div class="receipt-summary">
-                    <div>
-                        <span>Total</span>
-                        <strong>Rp {{ number_format($transaction->total, 0, ',', '.') }}</strong>
-                    </div>
-                    <div>
-                        <span>Metode</span>
-                        <strong>{{ $transaction->payment_type === 'cash' ? 'Tunai' : ($transaction->payment_type === 'transfer' ? 'Transfer' : '-') }}</strong>
-                    </div>
-                    <div>
-                        <span>Status</span>
-                        <strong>{{ $transaction->status === 'void' ? 'Batal' : ($transaction->payment_status === 'paid' ? 'Lunas' : 'Belum Bayar') }}</strong>
-                    </div>
-                </div>
-
                 @if(session('success'))
                     <div class="notice ok">{{ session('success') }}</div>
                 @endif
@@ -59,19 +44,23 @@
                     <div class="notice warn">{{ session('warning') }}</div>
                 @endif
 
+                <form class="print-size" method="GET" action="{{ route('transactions.receipt', $transaction) }}">
+                    <label for="receipt-size">Ukuran cetak</label>
+                    <select id="receipt-size" name="size" onchange="this.form.submit()">
+                        @foreach($receiptSizes as $value => $option)
+                            <option value="{{ $value }}" @selected($selectedSize === $value)>{{ $option['label'] }}</option>
+                        @endforeach
+                    </select>
+                </form>
+
                 <div class="actions">
+                    <button class="btn primary full" type="button" onclick="window.print()">Cetak dari Perangkat Ini</button>
                     @if($isThermalSafe)
-                        <form id="thermal-print-form" method="POST" action="{{ route('transactions.thermal-receipt', $transaction) }}" class="btn full" style="display:block;padding:0;border:0;background:transparent">
-                            @csrf
-                            <input type="hidden" id="rawbt-url" value="{{ $rawbtUrl }}">
-                            <button class="btn primary full" type="submit" style="width:100%">Cetak Thermal</button>
-                        </form>
-                    @else
-                        <button class="btn primary full" onclick="window.print()">Cetak Nota</button>
+                        <a id="rawbt-print-link" class="btn full rawbt-action" href="{{ $rawbtUrl }}">Cetak RawBT Android</a>
                     @endif
                 </div>
 
-                <div class="hint">{{ request()->boolean('autoprint') ? 'Auto print aktif. Klik Cetak Thermal jika struk belum keluar.' : 'Android: RawBT. Komputer: printer lokal.' }}</div>
+                <div class="hint">{{ request()->boolean('autoprint') ? 'Pilih printer yang terhubung ke perangkat ini. Ukuran utama 58mm.' : 'Default 58mm. Pilih ukuran lain jika memakai printer biasa.' }}</div>
             </aside>
         @endif
         <div class="{{ $pdfMode ? '' : 'paper-stage' }}">
@@ -139,33 +128,8 @@
 </main>
 @if($isThermalSafe && ! $pdfMode)
     <script>
-        const thermalPrintForm = document.getElementById('thermal-print-form');
-
-        thermalPrintForm?.addEventListener('submit', function (event) {
-            const isAndroid = /Android/i.test(window.navigator.userAgent);
-            const rawbtUrl = document.getElementById('rawbt-url')?.value;
-
-            if (isAndroid && rawbtUrl) {
-                event.preventDefault();
-                window.location.href = rawbtUrl;
-            }
-        });
-
-        if (@json(request()->boolean('autoprint')) && thermalPrintForm) {
-            const autoPrintKey = 'dalwa-autoprint-{{ $transaction->id }}-{{ $selectedSize }}';
-
-            if (!sessionStorage.getItem(autoPrintKey)) {
-                sessionStorage.setItem(autoPrintKey, '1');
-
-                window.setTimeout(() => {
-                    if (typeof thermalPrintForm.requestSubmit === 'function') {
-                        thermalPrintForm.requestSubmit();
-                        return;
-                    }
-
-                    thermalPrintForm.submit();
-                }, 350);
-            }
+        if (/Android/i.test(window.navigator.userAgent)) {
+            document.getElementById('rawbt-print-link')?.classList.add('show');
         }
     </script>
 @endif

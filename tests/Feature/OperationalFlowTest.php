@@ -68,11 +68,13 @@ class OperationalFlowTest extends TestCase
             ->get(route('transactions.receipt', ['transaction' => $transaction, 'size' => '58mm']))
             ->assertOk()
             ->assertSee('DALWA WATER TEGAL')
-            ->assertSee('Cetak Thermal')
+            ->assertSee('Cetak dari Perangkat Ini')
             ->assertSee('Kembali')
+            ->assertSee('Cetak RawBT Android')
+            ->assertSee('58mm Thermal')
+            ->assertDontSee('Cetak Thermal')
             ->assertDontSee('Download PDF')
-            ->assertDontSee('Download JPEG')
-            ->assertDontSee('58mm Thermal');
+            ->assertDontSee('Download JPEG');
 
         $pdfResponse = $this->actingAs($cashier)
             ->get(route('transactions.receipt-pdf', ['transaction' => $transaction, 'size' => 'a5']))
