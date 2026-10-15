@@ -960,7 +960,7 @@ function App({ props }: { props: AppProps }) {
                             {page !== 'expense-create' && page !== 'expense-edit' && resolvedPage === 'operations' && <Operations props={props} onCreate={() => activate('expense-create')} onEdit={(expense) => { setEditingExpense(expense); activate('expense-edit'); }} />}
                             {resolvedPage === 'audit-login' && props.user.isAdmin && <AuditLoginPage props={props} />}
                             {resolvedPage === 'approvals' && props.user.isAdmin && <ApprovalRequestsPage props={props} />}
-                            {resolvedPage === 'settings' && props.user.isAdmin && <Cashiers props={props} />}
+                            {resolvedPage === 'settings' && props.user.isAdmin && <StoreSettings props={props} />}
                             {resolvedPage === 'account' && <Account props={props} />}
                         </main>
                         <footer className="mt-auto pt-8 text-left text-xs font-medium text-darklink">
@@ -1701,7 +1701,7 @@ function PurchaseForm({ onBack, props }: { onBack: () => void; props: AppProps }
                     <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
                         <span className="hidden md:block" />
                         <div className="flex flex-wrap gap-2">
-                            <Button variant="primary" type="submit" disabled={!props.products.length}>{isEdit && !props.user.isAdmin ? 'Ajukan Persetujuan' : 'Simpan'}</Button>
+                            <Button variant="primary" type="submit" disabled={!props.products.length}>Simpan</Button>
                             <Button variant="soft" onClick={onBack}>Batal</Button>
                         </div>
                     </div>
@@ -3306,16 +3306,16 @@ function ExpenseCategoryChart({ expenses }: { expenses: Expense[] }) {
     );
 }
 
-function Cashiers({ props }: { props: AppProps }) {
+function StoreSettings({ props }: { props: AppProps }) {
     const initialTab = props.settingsTab === 'receipt' || props.settingsTab === 'users' || props.settingsTab === 'data' ? props.settingsTab : 'profile';
     const [tab, setTab] = useState<'profile' | 'receipt' | 'users' | 'data'>(initialTab);
     const [receiptDraft, setReceiptDraft] = useState<ReceiptSettings>(props.receiptSettings);
     const { sortDirection: cashierSortDirection, sortKey: cashierSortKey, toggleSort: toggleCashierSort } = useTableSort<'name' | 'username' | 'role' | 'status' | 'sales'>('name');
     const settingsTabs = [
         { id: 'profile' as const, label: 'Profil Toko' },
-        { id: 'receipt' as const, label: 'Struk & Pajak' },
+        { id: 'receipt' as const, label: 'Format Struk' },
         { id: 'users' as const, label: 'Pengguna' },
-        { id: 'data' as const, label: 'Data' },
+        { id: 'data' as const, label: 'Keamanan & Data' },
     ];
     const updateReceiptDraft = (key: keyof ReceiptSettings, value: string) => {
         setReceiptDraft((current) => ({ ...current, [key]: value }));
@@ -3336,51 +3336,91 @@ function Cashiers({ props }: { props: AppProps }) {
 
     return (
         <section className="grid gap-6">
-            <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Pengaturan Toko</h1><p className="text-sm text-muted-foreground">Konfigurasi sistem dan preferensi toko</p></div>
-            <Tabs active={tab} items={settingsTabs} onChange={setTab} />
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-semibold leading-8 text-foreground">Pengaturan Toko</h1>
+                    <p className="text-sm leading-5 text-muted-foreground">Kelola identitas toko, format struk, pengguna, dan keamanan akun.</p>
+                </div>
+                <Badge className="rounded-full px-3 py-1" variant="green">Akses Admin</Badge>
+            </div>
+            <Tabs className="w-full justify-start overflow-x-auto border-b border-ld bg-transparent p-0 pb-3 dark:bg-transparent" active={tab} items={settingsTabs} onChange={setTab} />
 
-                {tab === 'profile' && <div className="grid gap-5 xl:grid-cols-2">
-                    <Card className="bg-background" title="Informasi Toko">
-                        <FormStack className="max-w-[650px]">
-                            <Field label="Nama toko"><input defaultValue="Dalwa Water Tegal" /></Field>
-                            <Field label="Alamat lengkap"><textarea defaultValue="Tegal" /></Field>
+                {tab === 'profile' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+                    <Card className="bg-background" title="Identitas Toko">
+                        <p className="-mt-3 text-sm leading-5 text-muted-foreground">Data ini digunakan sebagai identitas utama pada struk transaksi.</p>
+                        <FormStack as="form" method="POST" action={props.routes.receiptSettingsUpdate ?? ''}>
+                            <input type="hidden" name="_token" value={props.csrf} />
+                            <input type="hidden" name="_method" value="PUT" />
+                            <input type="hidden" name="settings_tab" value="profile" />
+                            <input type="hidden" name="receipt_footer_line_1" value={receiptDraft.receipt_footer_line_1} />
+                            <input type="hidden" name="receipt_footer_line_2" value={receiptDraft.receipt_footer_line_2} />
+                            <input type="hidden" name="receipt_footer_line_3" value={receiptDraft.receipt_footer_line_3} />
+                            <input type="hidden" name="receipt_paper_width" value={receiptDraft.receipt_paper_width} />
+                            <input type="hidden" name="receipt_show_cashier" value={receiptDraft.receipt_show_cashier} />
+                            <input type="hidden" name="receipt_show_customer" value={receiptDraft.receipt_show_customer} />
+                            <input type="hidden" name="receipt_show_payment" value={receiptDraft.receipt_show_payment} />
+                            <Field label="Nama toko"><input name="receipt_store_name" value={receiptDraft.receipt_store_name} onChange={(event) => updateReceiptDraft('receipt_store_name', event.target.value)} required /></Field>
                             <div className="grid gap-4 md:grid-cols-2">
-                                <Field label="Nomor telepon"><input placeholder="+62" /></Field>
-                                <Field label="Nomor WhatsApp"><input placeholder="+62" /></Field>
+                                <Field label="Alamat baris 1"><input name="receipt_address_line_1" value={receiptDraft.receipt_address_line_1} onChange={(event) => updateReceiptDraft('receipt_address_line_1', event.target.value)} placeholder="Contoh: Tegal - Jawa Tengah" /></Field>
+                                <Field label="Alamat baris 2"><input name="receipt_address_line_2" value={receiptDraft.receipt_address_line_2} onChange={(event) => updateReceiptDraft('receipt_address_line_2', event.target.value)} placeholder="Contoh: Jl. Raya Tegalwangi" /></Field>
                             </div>
-                            <Field label="NPWP"><input placeholder="01.000.000.0-000.000" /></Field>
-                            <Button disabled>Simpan Perubahan</Button>
+                            <Field className="md:max-w-md" label="Nomor telepon"><input name="receipt_phone" value={receiptDraft.receipt_phone} onChange={(event) => updateReceiptDraft('receipt_phone', event.target.value)} placeholder="Contoh: 0852-3699-1848" /></Field>
+                            <div className="flex justify-end border-t border-ld pt-5">
+                                <Button variant="primary" type="submit">Simpan Identitas</Button>
+                            </div>
                         </FormStack>
                     </Card>
-                    <Card className="bg-background" title="Profil Akun">
-                        <FormStack as="form" method="POST" action={props.routes.profileUpdate ?? ''} className="max-w-[650px]">
+                    <Card className="bg-background" title="Profil Administrator">
+                        <div className="-mt-2 flex items-center gap-3 border-b border-ld pb-5">
+                            <span className="grid size-11 shrink-0 place-items-center rounded-md bg-lightprimary text-base font-semibold text-primary">{props.user.name.slice(0, 1).toUpperCase()}</span>
+                            <div className="min-w-0">
+                                <strong className="block truncate text-sm text-foreground">{props.user.name}</strong>
+                                <span className="block truncate text-xs text-muted-foreground">{props.user.username}</span>
+                            </div>
+                        </div>
+                        <FormStack as="form" method="POST" action={props.routes.profileUpdate ?? ''}>
                             <input type="hidden" name="_token" value={props.csrf} />
                             <input type="hidden" name="_method" value="PUT" />
                             <Field label="Nama"><input name="name" defaultValue={props.user.name} required /></Field>
                             <Field label="Nama pengguna"><input name="username" defaultValue={props.user.username} required /></Field>
                             <Field label="Email"><input name="email" type="email" defaultValue={props.user.email} required /></Field>
-                            <Button variant="primary" type="submit">Simpan Profil</Button>
+                            <div className="flex justify-end border-t border-ld pt-5">
+                                <Button variant="primary" type="submit">Simpan Profil</Button>
+                            </div>
                         </FormStack>
                     </Card>
                 </div>}
 
-                {tab === 'receipt' && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                {tab === 'receipt' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
                     <Card className="bg-background" title="Format Struk Thermal">
                         <FormStack as="form" method="POST" action={props.routes.receiptSettingsUpdate ?? ''}>
                             <input type="hidden" name="_token" value={props.csrf} />
                             <input type="hidden" name="_method" value="PUT" />
+                            <input type="hidden" name="settings_tab" value="receipt" />
+                            <div className="grid gap-1 border-b border-ld pb-3">
+                                <strong className="text-sm text-foreground">Header struk</strong>
+                                <span className="text-xs text-muted-foreground">Identitas toko yang dicetak di bagian paling atas.</span>
+                            </div>
                             <div className="grid gap-4 lg:grid-cols-2">
                                 <Field label="Nama toko"><input name="receipt_store_name" value={receiptDraft.receipt_store_name} onChange={(event) => updateReceiptDraft('receipt_store_name', event.target.value)} required /></Field>
                                 <Field label="Nomor telepon"><input name="receipt_phone" value={receiptDraft.receipt_phone} onChange={(event) => updateReceiptDraft('receipt_phone', event.target.value)} placeholder="Contoh: 0852-3699-1848" /></Field>
                             </div>
                             <Field label="Alamat baris 1"><input name="receipt_address_line_1" value={receiptDraft.receipt_address_line_1} onChange={(event) => updateReceiptDraft('receipt_address_line_1', event.target.value)} placeholder="Contoh: Tegal - Jawa Tengah" /></Field>
                             <Field label="Alamat baris 2"><input name="receipt_address_line_2" value={receiptDraft.receipt_address_line_2} onChange={(event) => updateReceiptDraft('receipt_address_line_2', event.target.value)} placeholder="Contoh: Jl. Raya Tegalwangi" /></Field>
+                            <div className="mt-2 grid gap-1 border-b border-ld pb-3">
+                                <strong className="text-sm text-foreground">Footer struk</strong>
+                                <span className="text-xs text-muted-foreground">Pesan penutup yang dicetak setelah ringkasan pembayaran.</span>
+                            </div>
                             <div className="grid gap-4 lg:grid-cols-3">
                                 <Field label="Footer 1"><input name="receipt_footer_line_1" value={receiptDraft.receipt_footer_line_1} onChange={(event) => updateReceiptDraft('receipt_footer_line_1', event.target.value)} /></Field>
                                 <Field label="Footer 2"><input name="receipt_footer_line_2" value={receiptDraft.receipt_footer_line_2} onChange={(event) => updateReceiptDraft('receipt_footer_line_2', event.target.value)} /></Field>
                                 <Field label="Footer 3"><input name="receipt_footer_line_3" value={receiptDraft.receipt_footer_line_3} onChange={(event) => updateReceiptDraft('receipt_footer_line_3', event.target.value)} /></Field>
                             </div>
-                            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                            <div className="mt-2 grid gap-1 border-b border-ld pb-3">
+                                <strong className="text-sm text-foreground">Ukuran dan isi</strong>
+                                <span className="text-xs text-muted-foreground">Sesuaikan lebar kertas dan informasi transaksi yang ditampilkan.</span>
+                            </div>
+                            <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                                 <Field label="Lebar struk"><select name="receipt_paper_width" value={receiptDraft.receipt_paper_width} onChange={(event) => updateReceiptDraft('receipt_paper_width', event.target.value)}><option value="32">58mm - 32 karakter</option><option value="42">80mm - 42 karakter</option></select></Field>
                                 <div className="grid gap-3 sm:grid-cols-3">
                                     <SettingsToggle name="receipt_show_cashier" title="Kasir" description="Tampil di struk" checked={receiptDraft.receipt_show_cashier === '1'} onChange={(checked) => updateReceiptDraft('receipt_show_cashier', checked ? '1' : '0')} />
@@ -3388,60 +3428,54 @@ function Cashiers({ props }: { props: AppProps }) {
                                     <SettingsToggle name="receipt_show_payment" title="Pembayaran" description="Metode dan kembali" checked={receiptDraft.receipt_show_payment === '1'} onChange={(checked) => updateReceiptDraft('receipt_show_payment', checked ? '1' : '0')} />
                                 </div>
                             </div>
-                            <div className="flex justify-end">
+                            <div className="flex justify-end border-t border-ld pt-5">
                                 <Button variant="primary" type="submit">Simpan Format Struk</Button>
                             </div>
                         </FormStack>
                     </Card>
-                    <Card className="bg-background" title="Preview Struk">
+                    <Card className="bg-background xl:sticky xl:top-24" title="Preview Struk">
                         <ReceiptSettingsPreview settings={receiptDraft} cashier={props.user.name} />
-                        <div className="mt-5 grid gap-3 border-t border-ld pt-5">
-                            <div className="grid gap-1"><span className="text-xs font-bold uppercase text-muted-foreground">Printer</span><strong className="text-sm text-foreground">X58MP II</strong></div>
-                            <div className="grid gap-1"><span className="text-xs font-bold uppercase text-muted-foreground">Mode</span><strong className="text-sm text-foreground">Thermal ESC/POS</strong></div>
-                            <SettingsToggle title="PDF Browser" description="Cetak dari preview nota" defaultChecked />
-                            <Button variant="soft" type="button" onClick={() => window.print()}>Tes Tampilan</Button>
+                        <div className="mt-5 flex items-center justify-between gap-4 border-t border-ld pt-5">
+                            <span className="text-sm font-medium text-muted-foreground">Ukuran aktif</span>
+                            <Badge variant="blue">{receiptDraft.receipt_paper_width === '42' ? '80mm' : '58mm'}</Badge>
                         </div>
                     </Card>
                 </div>}
 
-                {tab === 'users' && <div className="grid gap-5">
-                    <Card className="gap-0 overflow-hidden bg-background p-0">
-                        <div className="border-b border-ld px-6 py-5">
-                            <h2 className="text-lg font-semibold text-foreground">Tambah Pengguna</h2>
-                            <p className="mt-1 text-sm text-muted-foreground">Buat akun kasir atau admin baru.</p>
-                        </div>
-                        <FormStack as="form" method="POST" action={props.routes.cashiersStore ?? ''} className="gap-4 px-6 py-6">
+                {tab === 'users' && <div className="grid items-start gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+                    <Card className="bg-background xl:sticky xl:top-24" title="Tambah Pengguna">
+                        <p className="-mt-3 text-sm text-muted-foreground">Buat akun admin atau kasir baru.</p>
+                        <FormStack as="form" method="POST" action={props.routes.cashiersStore ?? ''}>
                             <input type="hidden" name="_token" value={props.csrf} />
-                            <CanvasFormRow label="Nama" required>
+                            <Field label="Nama">
                                 <input name="name" required placeholder="Masukan nama pengguna" />
-                            </CanvasFormRow>
-                            <CanvasFormRow label="Nama Pengguna" required>
+                            </Field>
+                            <Field label="Nama pengguna">
                                 <input name="username" required placeholder="Masukan nama pengguna untuk login" />
-                            </CanvasFormRow>
-                            <CanvasFormRow label="Kata Sandi" required>
+                            </Field>
+                            <Field label="Kata sandi">
                                 <input name="password" type="password" required placeholder="Masukan kata sandi" />
-                            </CanvasFormRow>
-                            <CanvasFormRow label="Peran" required>
+                            </Field>
+                            <Field label="Peran">
                                 <select name="role" defaultValue="cashier">
                                     <option value="cashier">Kasir</option>
                                     <option value="admin">Admin</option>
                                 </select>
-                            </CanvasFormRow>
-                            <CanvasFormRow label="Status" required>
+                            </Field>
+                            <Field label="Status">
                                 <select name="status" defaultValue="active">
                                     <option value="active">Aktif</option>
                                     <option value="inactive">Nonaktif</option>
                                 </select>
-                            </CanvasFormRow>
-                            <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
-                                <span className="hidden md:block" />
-                                <div className="flex flex-wrap gap-2">
-                                    <Button variant="primary" type="submit">Simpan</Button>
-                                </div>
-                            </div>
+                            </Field>
+                            <Button className="mt-1 w-full" variant="primary" type="submit">Tambah Pengguna</Button>
                         </FormStack>
                     </Card>
                     <Card className="bg-background" title="Daftar Pengguna">
+                        <div className="-mt-3 flex flex-wrap items-center justify-between gap-3">
+                            <span className="text-sm text-muted-foreground">{props.cashiers.length} akun terdaftar</span>
+                            <div className="flex gap-2"><Badge variant="green">{props.cashiers.filter((user) => user.status === 'active').length} aktif</Badge><Badge variant="red">{props.cashiers.filter((user) => user.status !== 'active').length} nonaktif</Badge></div>
+                        </div>
                         <DataTable className="[&_table]:min-w-[860px] [&_td]:py-5 [&_th]:!text-center [&_th]:text-foreground">
                             <table>
                                 <thead>
@@ -3476,27 +3510,38 @@ function Cashiers({ props }: { props: AppProps }) {
                     </Card>
                 </div>}
 
-                {tab === 'data' && <div className="grid gap-5 xl:grid-cols-2">
+                {tab === 'data' && <div className="grid items-start gap-5 xl:grid-cols-2">
                     <Card className="bg-background" title="Keamanan Akun">
-                        <FormStack as="form" method="POST" action={props.routes.passwordUpdate ?? ''} className="max-w-[650px]">
+                        <p className="-mt-3 text-sm text-muted-foreground">Gunakan kata sandi yang berbeda dari aplikasi lain.</p>
+                        <FormStack as="form" method="POST" action={props.routes.passwordUpdate ?? ''}>
                             <input type="hidden" name="_token" value={props.csrf} />
                             <input type="hidden" name="_method" value="PUT" />
                             <Field label="Kata sandi lama"><input name="current_password" type="password" required /></Field>
                             <Field label="Kata sandi baru"><input name="password" type="password" required /></Field>
                             <Field label="Konfirmasi kata sandi"><input name="password_confirmation" type="password" required /></Field>
-                            <Button variant="primary" type="submit">Ganti kata sandi</Button>
+                            <div className="flex justify-end border-t border-ld pt-5"><Button variant="primary" type="submit">Ganti Kata Sandi</Button></div>
                         </FormStack>
                     </Card>
                     <Card className="bg-background" title="Ringkasan Data">
+                        <p className="-mt-3 text-sm text-muted-foreground">Jumlah data utama yang tersimpan pada periode aktif.</p>
                         <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">Barang aktif</span><strong className="mt-2 block text-2xl text-foreground">{props.activeProducts.length}</strong></div>
-                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">User</span><strong className="mt-2 block text-2xl text-foreground">{props.cashiers.length}</strong></div>
-                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">Transaksi periode</span><strong className="mt-2 block text-2xl text-foreground">{props.historyTransactions.length}</strong></div>
-                            <div className="rounded-md border border-ld bg-card p-4"><span className="text-sm font-bold text-muted-foreground">Pengeluaran periode</span><strong className="mt-2 block text-2xl text-foreground">{props.expenses.length}</strong></div>
+                            <SettingsMetric label="Produk aktif" value={props.activeProducts.length} />
+                            <SettingsMetric label="Pengguna" value={props.cashiers.length} />
+                            <SettingsMetric label="Transaksi periode" value={props.historyTransactions.length} />
+                            <SettingsMetric label="Pengeluaran periode" value={props.expenses.length} />
                         </div>
                     </Card>
                 </div>}
         </section>
+    );
+}
+
+function SettingsMetric({ label, value }: { label: string; value: number }) {
+    return (
+        <div className="flex min-h-16 items-center justify-between gap-4 border-b border-ld px-1 py-3">
+            <span className="text-sm font-semibold text-muted-foreground">{label}</span>
+            <strong className="text-xl font-semibold text-foreground">{value.toLocaleString('id-ID')}</strong>
+        </div>
     );
 }
 
@@ -3550,9 +3595,12 @@ function SettingsToggle({ checked, defaultChecked = true, description, name, onC
     const controlled = checked !== undefined;
 
     return (
-        <label className="flex min-h-16 items-center justify-between gap-4 rounded-md border border-ld bg-card px-4 py-3">
+        <label className="flex min-h-16 cursor-pointer items-center justify-between gap-4 rounded-md border border-ld bg-card px-4 py-3 transition hover:border-primary/50">
             <span className="grid gap-1"><strong className="text-sm text-foreground">{title}</strong><small className="text-xs text-muted-foreground">{description}</small></span>
-            <input className="size-5 accent-primary" name={name} value="1" type="checkbox" checked={controlled ? checked : undefined} defaultChecked={controlled ? undefined : defaultChecked} onChange={(event) => onChange?.(event.target.checked)} />
+            <span className="relative inline-flex shrink-0">
+                <input className="peer sr-only" name={name} value="1" type="checkbox" checked={controlled ? checked : undefined} defaultChecked={controlled ? undefined : defaultChecked} onChange={(event) => onChange?.(event.target.checked)} />
+                <span className="h-6 w-11 rounded-full bg-muted transition peer-checked:bg-primary peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary after:absolute after:left-1 after:top-1 after:size-4 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:after:translate-x-5" />
+            </span>
         </label>
     );
 }

@@ -19,7 +19,11 @@ class ReceiptSettingController extends Controller
             'receipt_footer_line_2' => ['nullable', 'string', 'max:80'],
             'receipt_footer_line_3' => ['nullable', 'string', 'max:80'],
             'receipt_paper_width' => ['required', 'integer', 'min:24', 'max:42'],
+            'settings_tab' => ['nullable', 'in:profile,receipt'],
         ]);
+
+        $settingsTab = $data['settings_tab'] ?? 'receipt';
+        unset($data['settings_tab']);
 
         AppSetting::updateReceiptSettings([
             ...$data,
@@ -29,7 +33,7 @@ class ReceiptSettingController extends Controller
         ]);
 
         return redirect()
-            ->route('dashboard', ['page' => 'settings', 'settings_tab' => 'receipt'])
-            ->with('success', 'Format struk berhasil diperbarui.');
+            ->route('dashboard', ['page' => 'settings', 'settings_tab' => $settingsTab])
+            ->with('success', $settingsTab === 'profile' ? 'Identitas toko berhasil diperbarui.' : 'Format struk berhasil diperbarui.');
     }
 }

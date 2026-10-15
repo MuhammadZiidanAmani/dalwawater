@@ -66,7 +66,7 @@ class AuthController extends Controller
         AuditLog::record('user.profile_updated', $user);
 
         return redirect()
-            ->route('dashboard', ['page' => 'cashiers'])
+            ->route('dashboard', ['page' => 'settings', 'settings_tab' => 'profile'])
             ->with('success', 'Profil berhasil diperbarui.');
     }
 
@@ -92,7 +92,9 @@ class AuthController extends Controller
         AuditLog::record('user.password_updated', $user);
 
         return redirect()
-            ->route('dashboard', ['page' => $user->isAdmin() ? 'cashiers' : 'account'])
+            ->route('dashboard', $user->isAdmin()
+                ? ['page' => 'settings', 'settings_tab' => 'data']
+                : ['page' => 'account'])
             ->with('success', 'Password berhasil diganti.');
     }
 
