@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\DashboardRequest;
+use App\Models\ApprovalRequest;
 use App\Models\AuditLog;
 use App\Models\CashierShift;
 use App\Models\Category;
@@ -113,11 +114,9 @@ class DashboardController extends Controller
                 ->where('status', '!=', 'void')
                 ->where('payment_status', 'paid');
             $grossProfit = $metrics->transactionProfit(clone $monthTransactions);
-            $expense = $request->user()->isAdmin()
-                ? (int) Expense::whereDate('spent_at', '>=', $month->copy()->startOfMonth()->toDateString())
-                    ->whereDate('spent_at', '<=', $month->copy()->endOfMonth()->toDateString())
-                    ->sum('amount')
-                : 0;
+            $expense = (int) Expense::whereDate('spent_at', '>=', $month->copy()->startOfMonth()->toDateString())
+                ->whereDate('spent_at', '<=', $month->copy()->endOfMonth()->toDateString())
+                ->sum('amount');
 
             return [
                 'label' => $month->translatedFormat('M y'),
@@ -228,26 +227,20 @@ class DashboardController extends Controller
         }
 
         $reportTransactions = $reportQuery->get();
-        $stockEntries = $request->user()->isAdmin()
-            ? StockIn::with('product')
-                ->orderByDesc('tanggal')
-                ->orderByDesc('id')
-                ->get()
-            : collect();
-        $purchaseHistory = $request->user()->isAdmin()
-            ? StockIn::with('product')
-                ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]))
-                ->orderByDesc('tanggal')
-                ->orderByDesc('id')
-                ->get()
-            : collect();
-        $expenses = $request->user()->isAdmin()
-            ? Expense::with('user')
-                ->when($hasDateRange, fn ($query) => $query->whereDate('spent_at', '>=', $startDate)->whereDate('spent_at', '<=', $endDate))
-                ->orderByDesc('spent_at')
-                ->orderByDesc('id')
-                ->get()
-            : collect();
+        $stockEntries = StockIn::with('product')
+            ->orderByDesc('tanggal')
+            ->orderByDesc('id')
+            ->get();
+        $purchaseHistory = StockIn::with('product')
+            ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]))
+            ->orderByDesc('tanggal')
+            ->orderByDesc('id')
+            ->get();
+        $expenses = Expense::with('user')
+            ->when($hasDateRange, fn ($query) => $query->whereDate('spent_at', '>=', $startDate)->whereDate('spent_at', '<=', $endDate))
+            ->orderByDesc('spent_at')
+            ->orderByDesc('id')
+            ->get();
         $expenseTotal = (int) $expenses->sum('amount');
         $reportPaidQuery = (clone $reportBaseQuery)->where('payment_status', 'paid');
         $reportPaidTransactions = (clone $reportPaidQuery)->count();
@@ -257,8 +250,8 @@ class DashboardController extends Controller
         $reportNetProfit = $reportGrossProfit - $expenseTotal;
         $reportPurchaseQuery = StockIn::query()
             ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]));
-        $reportPurchaseTotal = $request->user()->isAdmin() ? $metrics->purchaseTotal(clone $reportPurchaseQuery) : 0;
-        $reportPurchaseQty = $request->user()->isAdmin() ? (int) (clone $reportPurchaseQuery)->sum('qty') : 0;
+        $reportPurchaseTotal = $metrics->purchaseTotal(clone $reportPurchaseQuery);
+        $reportPurchaseQty = (int) (clone $reportPurchaseQuery)->sum('qty');
         $dailyTransactionsQuery = Transaction::visibleTo($request->user())
             ->whereDate('created_at', Carbon::today())
             ->where('status', '!=', 'void')
@@ -296,9 +289,7 @@ class DashboardController extends Controller
         ];
 
         $categories = Category::all();
-        $suppliers = $request->user()->isAdmin()
-            ? Supplier::orderBy('nama')->get()
-            : collect();
+        $suppliers = Supplier::orderBy('nama')->get();
         $currentShift = $request->user()->cashierShifts()
             ->open()
             ->latest('opened_at')
@@ -306,12 +297,13 @@ class DashboardController extends Controller
         $recentShifts = $request->user()->isAdmin()
             ? CashierShift::with('user')->latest('opened_at')->limit(10)->get()
             : $request->user()->cashierShifts()->latest('opened_at')->limit(5)->get();
-        $stockOpnames = $request->user()->isAdmin()
-            ? StockOpname::with(['user', 'adjustments.product'])->latest()->limit(10)->get()
-            : collect();
+        $stockOpnames = StockOpname::with(['user', 'adjustments.product'])->latest()->limit(10)->get();
         $auditLogs = $request->user()->isAdmin()
             ? AuditLog::with('user')->latest()->limit(20)->get()
             : collect();
+        $approvalRequests = $request->user()->isAdmin()
+            ? ApprovalRequest::with(['requester', 'reviewer', 'subject'])->latest()->limit(100)->get()
+            : $request->user()->approvalRequests()->with(['reviewer', 'subject'])->latest()->limit(50)->get();
 
         return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
             'categories' => $categories,
@@ -346,6 +338,7 @@ class DashboardController extends Controller
             'recentShifts' => $recentShifts,
             'stockOpnames' => $stockOpnames,
             'auditLogs' => $auditLogs,
+            'approvalRequests' => $approvalRequests,
         ]);
     }
 
@@ -355,8 +348,8 @@ class DashboardController extends Controller
             Transaction::visibleTo($user)
                 ->where('status', '!=', 'void')
                 ->min('created_at'),
-            $user->isAdmin() ? Expense::min('spent_at') : null,
-            $user->isAdmin() ? StockIn::min('tanggal') : null,
+            Expense::min('spent_at'),
+            StockIn::min('tanggal'),
         ])->filter();
 
         if ($dates->isEmpty()) {

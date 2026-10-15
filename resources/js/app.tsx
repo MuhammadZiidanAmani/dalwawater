@@ -163,6 +163,22 @@ type AuditLog = {
     action: string;
 };
 
+type ApprovalRequest = {
+    id: number;
+    requester: string;
+    reviewer: string | null;
+    subject_type: string;
+    subject_name: string;
+    action: 'update' | 'delete';
+    status: 'pending' | 'approved' | 'rejected';
+    payload: Record<string, unknown>;
+    review_notes: string | null;
+    requested_at: string;
+    reviewed_at: string | null;
+    approve_url: string | null;
+    reject_url: string | null;
+};
+
 type SalesPoint = {
     label: string;
     count: number;
@@ -221,6 +237,7 @@ type AppProps = {
     recentShifts: CashierShift[];
     stockOpnames: StockOpname[];
     auditLogs: AuditLog[];
+    approvalRequests: ApprovalRequest[];
     salesChart: SalesPoint[];
     netProfitChart: SalesPoint[];
     financialChart: FinancialChartPoint[];
@@ -394,7 +411,80 @@ const todayInputDate = () => {
     return `${year}-${month}-${day}`;
 };
 
-const navFor = (isAdmin: boolean): NavGroup[] => isAdmin ? [
+const displayDate = (value: string) => {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+};
+
+const parseDisplayDate = (value: string) => {
+    const match = value.trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (!match) return '';
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return '';
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+function EditableDateInput({ className = '', defaultValue, label, name, required = false }: { className?: string; defaultValue: string; label: string; name: string; required?: boolean }) {
+    const [isoValue, setIsoValue] = useState(defaultValue.slice(0, 10));
+    const [textValue, setTextValue] = useState(displayDate(defaultValue));
+    const pickerId = useId();
+    const updateText = (value: string) => {
+        setTextValue(value);
+        setIsoValue(parseDisplayDate(value));
+    };
+
+    return (
+        <div className={`relative min-w-0 ${className}`}>
+            <input
+                className="flex h-10 w-full rounded-sm border border-ld bg-transparent px-3 pe-11 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+                type="text"
+                inputMode="numeric"
+                value={textValue}
+                placeholder="DD/MM/YYYY"
+                aria-label={label}
+                required={required}
+                pattern="\d{1,2}[\/-]\d{1,2}[\/-]\d{4}"
+                onChange={(event) => updateText(event.target.value)}
+                onBlur={() => isoValue && setTextValue(displayDate(isoValue))}
+            />
+            <input type="hidden" name={name} value={isoValue} />
+            <label className="absolute inset-y-0 right-0 grid w-11 cursor-pointer place-items-center text-muted-foreground hover:text-primary" htmlFor={pickerId} title="Pilih tanggal">
+                <svg className="size-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" /></svg>
+                <input id={pickerId} className="absolute inset-0 cursor-pointer opacity-0" type="date" value={isoValue} tabIndex={-1} onChange={(event) => { setIsoValue(event.target.value); setTextValue(displayDate(event.target.value)); }} />
+            </label>
+        </div>
+    );
+}
+
+function EditableDateTimeInput({ value, onChange, name }: { value: string; onChange: (value: string) => void; name: string }) {
+    const [textValue, setTextValue] = useState(() => `${displayDate(value)} ${value.slice(11, 16)}`.trim());
+    const pickerId = useId();
+    const updateText = (text: string) => {
+        setTextValue(text);
+        const match = text.trim().match(/^(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})\s+(\d{1,2}):(\d{2})$/);
+        if (!match) return onChange('');
+        const date = parseDisplayDate(match[1]);
+        const hour = Number(match[2]);
+        const minute = Number(match[3]);
+        onChange(date && hour < 24 && minute < 60 ? `${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}` : '');
+    };
+
+    return (
+        <div className="relative">
+            <input type="text" value={textValue} inputMode="numeric" placeholder="DD/MM/YYYY HH:mm" required className="flex h-10 w-full rounded-sm border border-ld bg-transparent px-3 pe-11 py-2 text-sm text-foreground outline-none transition focus:border-primary" onChange={(event) => updateText(event.target.value)} />
+            <input type="hidden" name={name} value={value} />
+            <label className="absolute inset-y-0 right-0 grid w-11 cursor-pointer place-items-center text-muted-foreground hover:text-primary" htmlFor={pickerId} title="Pilih tanggal dan waktu">
+                <svg className="size-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" /><path d="M12 12v3l2 1" /></svg>
+                <input id={pickerId} className="absolute inset-0 cursor-pointer opacity-0" type="datetime-local" value={value} tabIndex={-1} onChange={(event) => { onChange(event.target.value); setTextValue(`${displayDate(event.target.value)} ${event.target.value.slice(11, 16)}`); }} />
+            </label>
+        </div>
+    );
+}
+
+const navFor = (isAdmin: boolean): NavGroup[] => [
     {
         heading: 'Halaman',
         items: [
@@ -424,30 +514,10 @@ const navFor = (isAdmin: boolean): NavGroup[] => isAdmin ? [
             { id: 'categories', label: 'Kategori', icon: 'category' },
             { id: 'inventory', label: 'Produk', icon: 'product' },
             { id: 'suppliers', label: 'Suplier', icon: 'supplier' },
-            { id: 'audit-login', label: 'Audit Login', icon: 'history' },
+            ...(isAdmin ? [{ id: 'audit-login', label: 'Audit Login', icon: 'history' }] : []),
         ],
     },
-] : [
-    {
-        heading: 'Halaman',
-        items: [
-            { id: 'dashboard', label: 'Beranda', icon: 'dashboard' },
-            { id: 'transactions', label: 'Transaksi', icon: 'cashier' },
-            { id: 'operations', label: 'Pengeluaran', icon: 'wallet' },
-        ],
-    },
-    {
-        heading: 'Data Laporan',
-        items: [
-            { id: 'transaction-history', label: 'Riwayat Transaksi', icon: 'history' },
-        ],
-    },
-    {
-        heading: 'Data Master',
-        items: [
-            { id: 'inventory', label: 'Produk', icon: 'product' },
-        ],
-    },
+    ...(isAdmin ? [{ heading: 'Administrasi', items: [{ id: 'approvals', label: 'Persetujuan', icon: 'history' }] }] : []),
 ];
 
 function NavIcon({ name }: { name: string }) {
@@ -863,32 +933,33 @@ function App({ props }: { props: AppProps }) {
                             {resolvedPage === 'transactions' && <Transactions props={props} />}
                             {page === 'transaction-edit' && editingTransaction && <TransactionEditForm transaction={editingTransaction} props={props} onBack={() => activate('transaction-history')} />}
                             {page === 'transaction-edit' && !editingTransaction && <TransactionHistory props={props} onEdit={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
-                            {page === 'product-create' && props.user.isAdmin && <ProductForm props={props} onBack={() => activate('inventory')} />}
-                            {page === 'product-edit' && props.user.isAdmin && editingProduct && <ProductForm product={editingProduct} props={props} onBack={() => activate('inventory')} />}
-                            {page === 'product-edit' && props.user.isAdmin && !editingProduct && <Inventory props={props} onCreate={() => activate('product-create')} onEdit={(product) => { setEditingProduct(product); activate('product-edit'); }} />}
+                            {page === 'product-create' && <ProductForm props={props} onBack={() => activate('inventory')} />}
+                            {page === 'product-edit' && editingProduct && <ProductForm product={editingProduct} props={props} onBack={() => activate('inventory')} />}
+                            {page === 'product-edit' && !editingProduct && <Inventory props={props} onCreate={() => activate('product-create')} onEdit={(product) => { setEditingProduct(product); activate('product-edit'); }} />}
                             {page !== 'product-create' && page !== 'product-edit' && resolvedPage === 'inventory' && <Inventory props={props} onCreate={() => activate('product-create')} onEdit={(product) => { setEditingProduct(product); activate('product-edit'); }} />}
-                            {page === 'category-create' && props.user.isAdmin && <CategoryForm props={props} onBack={() => activate('categories')} />}
-                            {page === 'category-edit' && props.user.isAdmin && editingCategory && <CategoryForm category={editingCategory} props={props} onBack={() => activate('categories')} />}
-                            {page === 'category-edit' && props.user.isAdmin && !editingCategory && <Categories props={props} onCreate={() => activate('category-create')} onEdit={(category) => { setEditingCategory(category); activate('category-edit'); }} />}
-                            {page !== 'category-create' && page !== 'category-edit' && resolvedPage === 'categories' && props.user.isAdmin && <Categories props={props} onCreate={() => activate('category-create')} onEdit={(category) => { setEditingCategory(category); activate('category-edit'); }} />}
-                            {page === 'supplier-create' && props.user.isAdmin && <SupplierForm props={props} onBack={() => activate('suppliers')} />}
-                            {page === 'supplier-edit' && props.user.isAdmin && editingSupplier && <SupplierForm supplier={editingSupplier} props={props} onBack={() => activate('suppliers')} />}
-                            {page === 'supplier-edit' && props.user.isAdmin && !editingSupplier && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
-                            {page !== 'supplier-create' && page !== 'supplier-edit' && resolvedPage === 'suppliers' && props.user.isAdmin && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
-                            {page === 'stock-purchase' && props.user.isAdmin && <PurchaseForm props={props} onBack={() => activate('purchases')} />}
-                            {page === 'stock-create' && props.user.isAdmin && <StockInForm props={props} onBack={() => activate('purchases')} />}
-                            {page === 'stock-edit' && props.user.isAdmin && editingStockIn && <StockInForm stockIn={editingStockIn} props={props} onBack={() => activate('purchases')} />}
-                            {page === 'stock-edit' && props.user.isAdmin && !editingStockIn && <Purchases props={props} onCreate={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
-                            {resolvedPage === 'stock' && props.user.isAdmin && <StockPage props={props} />}
-                            {page !== 'stock-purchase' && page !== 'stock-create' && page !== 'stock-edit' && resolvedPage === 'purchases' && props.user.isAdmin && <Purchases props={props} onCreate={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
-                            {resolvedPage === 'stock-opname' && props.user.isAdmin && <StockOpnamePage props={props} />}
+                            {page === 'category-create' && <CategoryForm props={props} onBack={() => activate('categories')} />}
+                            {page === 'category-edit' && editingCategory && <CategoryForm category={editingCategory} props={props} onBack={() => activate('categories')} />}
+                            {page === 'category-edit' && !editingCategory && <Categories props={props} onCreate={() => activate('category-create')} onEdit={(category) => { setEditingCategory(category); activate('category-edit'); }} />}
+                            {page !== 'category-create' && page !== 'category-edit' && resolvedPage === 'categories' && <Categories props={props} onCreate={() => activate('category-create')} onEdit={(category) => { setEditingCategory(category); activate('category-edit'); }} />}
+                            {page === 'supplier-create' && <SupplierForm props={props} onBack={() => activate('suppliers')} />}
+                            {page === 'supplier-edit' && editingSupplier && <SupplierForm supplier={editingSupplier} props={props} onBack={() => activate('suppliers')} />}
+                            {page === 'supplier-edit' && !editingSupplier && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
+                            {page !== 'supplier-create' && page !== 'supplier-edit' && resolvedPage === 'suppliers' && <Suppliers props={props} onCreate={() => activate('supplier-create')} onEdit={(supplier) => { setEditingSupplier(supplier); activate('supplier-edit'); }} />}
+                            {page === 'stock-purchase' && <PurchaseForm props={props} onBack={() => activate('purchases')} />}
+                            {page === 'stock-create' && <StockInForm props={props} onBack={() => activate('purchases')} />}
+                            {page === 'stock-edit' && editingStockIn && <StockInForm stockIn={editingStockIn} props={props} onBack={() => activate('purchases')} />}
+                            {page === 'stock-edit' && !editingStockIn && <Purchases props={props} onCreate={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {resolvedPage === 'stock' && <StockPage props={props} />}
+                            {page !== 'stock-purchase' && page !== 'stock-create' && page !== 'stock-edit' && resolvedPage === 'purchases' && <Purchases props={props} onCreate={() => activate('stock-purchase')} onEdit={(stockIn) => { setEditingStockIn(stockIn); activate('stock-edit'); }} />}
+                            {resolvedPage === 'stock-opname' && <StockOpnamePage props={props} />}
                             {resolvedPage === 'history' && <History props={props} onEditTransaction={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
                             {resolvedPage === 'transaction-history' && page !== 'transaction-edit' && <TransactionHistory props={props} onEdit={(transaction) => { setEditingTransaction(transaction); activate('transaction-edit'); }} />}
-                            {page === 'expense-create' && props.user.isAdmin && <ExpenseForm props={props} onBack={() => activate('operations')} />}
-                            {page === 'expense-edit' && props.user.isAdmin && editingExpense && <ExpenseForm expense={editingExpense} props={props} onBack={() => activate('operations')} />}
-                            {page === 'expense-edit' && props.user.isAdmin && !editingExpense && <Operations props={props} onCreate={() => activate('expense-create')} onEdit={(expense) => { setEditingExpense(expense); activate('expense-edit'); }} />}
+                            {page === 'expense-create' && <ExpenseForm props={props} onBack={() => activate('operations')} />}
+                            {page === 'expense-edit' && editingExpense && <ExpenseForm expense={editingExpense} props={props} onBack={() => activate('operations')} />}
+                            {page === 'expense-edit' && !editingExpense && <Operations props={props} onCreate={() => activate('expense-create')} onEdit={(expense) => { setEditingExpense(expense); activate('expense-edit'); }} />}
                             {page !== 'expense-create' && page !== 'expense-edit' && resolvedPage === 'operations' && <Operations props={props} onCreate={() => activate('expense-create')} onEdit={(expense) => { setEditingExpense(expense); activate('expense-edit'); }} />}
                             {resolvedPage === 'audit-login' && props.user.isAdmin && <AuditLoginPage props={props} />}
+                            {resolvedPage === 'approvals' && props.user.isAdmin && <ApprovalRequestsPage props={props} />}
                             {resolvedPage === 'settings' && props.user.isAdmin && <Cashiers props={props} />}
                             {resolvedPage === 'account' && <Account props={props} />}
                         </main>
@@ -1329,7 +1400,7 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
         <section className="grid gap-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div><h1 className="text-2xl font-semibold leading-8 text-foreground">Produk</h1><p className="text-sm text-muted-foreground">Kelola katalog produk, kategori, barcode, dan batas stok minimal.</p></div>
-                {props.user.isAdmin && (
+            {(
                     <div className="flex flex-wrap gap-2">
                         <Button className="self-start" variant="primary" onClick={onCreate}>Tambah</Button>
                     </div>
@@ -1346,7 +1417,7 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
                         Filter
                     </Button>
                 </div>
-                <ProductTable products={filteredProducts} showActions={props.user.isAdmin} csrf={props.csrf} onEdit={onEdit} />
+            <ProductTable products={filteredProducts} showActions csrf={props.csrf} onEdit={onEdit} />
                 <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredProducts.length} dari {props.products.length} data</p>
             </Card>
         </section>
@@ -1582,7 +1653,7 @@ function PurchaseForm({ onBack, props }: { onBack: () => void; props: AppProps }
                         <input name="invoice_number" placeholder="Masukan nomor faktur atau nota" />
                     </CanvasFormRow>
                     <CanvasFormRow label="Tanggal" required>
-                        <input name="tanggal" type="date" defaultValue={todayInputDate()} required />
+                        <EditableDateInput name="tanggal" defaultValue={todayInputDate()} label="Tanggal pembelian" required />
                     </CanvasFormRow>
                     <CanvasFormRow label="Nama Suplier">
                         <select name="supplier" defaultValue="">
@@ -1630,7 +1701,7 @@ function PurchaseForm({ onBack, props }: { onBack: () => void; props: AppProps }
                     <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
                         <span className="hidden md:block" />
                         <div className="flex flex-wrap gap-2">
-                            <Button variant="primary" type="submit" disabled={!props.products.length}>Simpan</Button>
+                            <Button variant="primary" type="submit" disabled={!props.products.length}>{isEdit && !props.user.isAdmin ? 'Ajukan Persetujuan' : 'Simpan'}</Button>
                             <Button variant="soft" onClick={onBack}>Batal</Button>
                         </div>
                     </div>
@@ -1740,7 +1811,7 @@ function StockInForm({ onBack, props, stockIn }: { onBack: () => void; props: Ap
                         <input name="invoice_number" defaultValue={stockIn?.invoice_number ?? ''} placeholder="Masukan nomor faktur atau nota" />
                     </CanvasFormRow>
                     <CanvasFormRow label="Tanggal" required>
-                        <input name="tanggal" type="date" defaultValue={stockIn?.tanggal_input ?? todayInputDate()} required />
+                        <EditableDateInput name="tanggal" defaultValue={stockIn?.tanggal_input ?? todayInputDate()} label="Tanggal pembelian" required />
                     </CanvasFormRow>
                     <CanvasFormRow label="Nama Suplier">
                         <select name="supplier" defaultValue={stockIn?.supplier ?? ''}>
@@ -1869,7 +1940,7 @@ function ProductForm({ onBack, product, props }: { onBack: () => void; product?:
                     <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
                         <span className="hidden md:block" />
                         <div className="flex flex-wrap gap-2">
-                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="primary" type="submit">{isEdit && !props.user.isAdmin ? 'Ajukan Persetujuan' : 'Simpan'}</Button>
                             <Button variant="soft" onClick={onBack}>Batal</Button>
                         </div>
                     </div>
@@ -1902,7 +1973,7 @@ function CategoryForm({ category, onBack, props }: { category?: Category; onBack
                     <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
                         <span className="hidden md:block" />
                         <div className="flex flex-wrap gap-2">
-                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="primary" type="submit">{isEdit && !props.user.isAdmin ? 'Ajukan Persetujuan' : 'Simpan'}</Button>
                             <Button variant="soft" onClick={onBack}>Batal</Button>
                         </div>
                     </div>
@@ -2022,7 +2093,7 @@ function SupplierForm({ supplier, onBack, props }: { supplier?: Supplier; onBack
                     <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
                         <span className="hidden md:block" />
                         <div className="flex flex-wrap gap-2">
-                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="primary" type="submit">{isEdit && !props.user.isAdmin ? 'Ajukan Persetujuan' : 'Simpan'}</Button>
                             <Button variant="soft" onClick={onBack}>Batal</Button>
                         </div>
                     </div>
@@ -2111,11 +2182,7 @@ function Suppliers({ props, onCreate, onEdit }: { props: AppProps; onCreate: () 
 }
 
 function History({ props, onEditTransaction }: { props: AppProps; onEditTransaction: (transaction: Transaction) => void }) {
-    if (props.user.isAdmin) {
-        return <ReportPage props={props} />;
-    }
-
-    return <TransactionHistory props={props} onEdit={onEditTransaction} />;
+    return <ReportPage props={props} />;
 }
 
 function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (transaction: Transaction) => void }) {
@@ -2138,8 +2205,8 @@ function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (trans
             <Card>
                 <form className="mb-5 grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_180px]" method="GET">
                     <input type="hidden" name="page" value="transaction-history" />
-                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={startDate} aria-label="Tanggal mulai" />
-                    <input className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={endDate} aria-label="Tanggal akhir" />
+                    <EditableDateInput name="start_date" defaultValue={startDate} label="Tanggal mulai" />
+                    <EditableDateInput name="end_date" defaultValue={endDate} label="Tanggal akhir" />
                     <select className="h-10 rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="payment_status" value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} aria-label="Filter status pembayaran">
                         <option value="">Semua status</option>
                         <option value="paid">Lunas</option>
@@ -2152,7 +2219,7 @@ function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (trans
                     </select>
                     <Button className="h-10 w-full" type="submit">Filter</Button>
                 </form>
-                <TransactionTable transactions={filteredTransactions} showCashier={props.user.isAdmin} csrf={props.csrf} onEdit={onEdit} />
+                <TransactionTable transactions={filteredTransactions} showCashier csrf={props.csrf} onEdit={onEdit} />
                 <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredTransactions.length} dari {visibleTransactions.length} transaksi</p>
             </Card>
         </section>
@@ -2212,7 +2279,7 @@ function TransactionEditForm({ onBack, props, transaction }: { onBack: () => voi
                                 <strong className="mt-1 block text-sm text-foreground">{transaction.kode_transaksi}</strong>
                             </div>
                             <Field label="Tanggal">
-                                <input name="created_at" type="datetime-local" value={createdAt} onChange={(event) => setCreatedAt(event.target.value)} required />
+                                <EditableDateTimeInput name="created_at" value={createdAt} onChange={setCreatedAt} />
                             </Field>
                             <Field label="Metode Pembayaran">
                                 <select name="payment_type" value={paymentType} onChange={(event) => setPaymentType(event.target.value as 'cash' | 'transfer')} required>
@@ -2273,7 +2340,7 @@ function TransactionEditForm({ onBack, props, transaction }: { onBack: () => voi
                         <Button className="self-start" variant="soft" onClick={addItem}>Tambah Item</Button>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <Button variant="primary" type="submit" disabled={!transaction.update_url}>Simpan</Button>
+                        <Button variant="primary" type="submit" disabled={!transaction.update_url}>{props.user.isAdmin ? 'Simpan' : 'Ajukan Persetujuan'}</Button>
                         <Button variant="soft" onClick={onBack}>Batal</Button>
                     </div>
                 </FormStack>
@@ -2300,15 +2367,15 @@ function Operations({ onCreate, onEdit, props }: { props: AppProps; onCreate?: (
                     <h1 className="text-2xl font-semibold leading-8 text-foreground">Pengeluaran</h1>
                     <p className="text-sm text-muted-foreground">Kelola uraian, volume, harga, jumlah, dan keterangan pengeluaran.</p>
                 </div>
-                {props.user.isAdmin && <Button variant="primary" onClick={onCreate}>Tambah</Button>}
+                <Button variant="primary" onClick={onCreate}>Tambah</Button>
             </div>
 
             <Card>
                 <div className="mb-5 grid gap-3 xl:grid-cols-[minmax(460px,620px)_minmax(320px,1fr)]">
                     <form method="GET" action={props.routes.dashboard ?? ''} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
                         <input type="hidden" name="page" value="operations" />
-                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="start_date" type="date" defaultValue={startDate} aria-label="Tanggal mulai" />
-                        <input className="h-10 w-full rounded-md border border-ld bg-card px-4 text-sm text-foreground outline-none focus:border-primary" name="end_date" type="date" defaultValue={endDate} aria-label="Tanggal akhir" />
+                        <EditableDateInput name="start_date" defaultValue={startDate} label="Tanggal mulai" />
+                        <EditableDateInput name="end_date" defaultValue={endDate} label="Tanggal akhir" />
                         <Button className="h-10 w-full sm:w-auto" variant="soft" type="submit">Filter</Button>
                     </form>
                     <label className="flex h-10 items-center gap-3 rounded-md border border-ld bg-card px-4 focus-within:border-primary">
@@ -2316,7 +2383,7 @@ function Operations({ onCreate, onEdit, props }: { props: AppProps; onCreate?: (
                         <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari uraian atau keterangan..." aria-label="Cari pengeluaran" />
                     </label>
                 </div>
-                <ExpenseTable expenses={filteredExpenses} csrf={props.csrf} showActions={props.user.isAdmin} onEdit={(expense) => onEdit?.(expense)} />
+                <ExpenseTable expenses={filteredExpenses} csrf={props.csrf} showActions onEdit={(expense) => onEdit?.(expense)} />
                 <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredExpenses.length} dari {props.expenses.length} data</p>
             </Card>
         </section>
@@ -2347,7 +2414,7 @@ function ExpenseForm({ expense, onBack, props }: { expense?: Expense; onBack: ()
                     <input type="hidden" name="price" value={priceValue} />
                     <input type="hidden" name="amount" value={amount} />
                     <CanvasFormRow label="Tanggal" required>
-                        <input name="spent_at" type="date" defaultValue={expense?.spent_at_input ?? todayInputDate()} required />
+                        <EditableDateInput name="spent_at" defaultValue={expense?.spent_at_input ?? todayInputDate()} label="Tanggal pengeluaran" required />
                     </CanvasFormRow>
                     <CanvasFormRow label="Uraian" required>
                         <input name="uraian" defaultValue={expense?.uraian ?? ''} placeholder="Masukkan uraian" required />
@@ -2370,7 +2437,7 @@ function ExpenseForm({ expense, onBack, props }: { expense?: Expense; onBack: ()
                     <div className="grid gap-3 pt-2 md:grid-cols-[220px_minmax(0,1fr)]">
                         <span className="hidden md:block" />
                         <div className="flex flex-wrap gap-2">
-                            <Button variant="primary" type="submit">Simpan</Button>
+                            <Button variant="primary" type="submit">{isEdit && !props.user.isAdmin ? 'Ajukan Persetujuan' : 'Simpan'}</Button>
                             <Button variant="soft" onClick={onBack}>Batal</Button>
                         </div>
                     </div>
@@ -2904,7 +2971,7 @@ function StockOpnamePage({ props }: { props: AppProps }) {
                 <FormStack as="form" method="POST" action={props.routes.stockOpnamesStore ?? ''} className="gap-4 px-6 py-6">
                     <input type="hidden" name="_token" value={props.csrf} />
                     <CanvasFormRow label="Tanggal" required>
-                        <input name="opname_date" type="date" defaultValue={todayInputDate()} required />
+                        <EditableDateInput name="opname_date" defaultValue={todayInputDate()} label="Tanggal stok opname" required />
                     </CanvasFormRow>
                     <CanvasFormRow label="Produk" required>
                         <select name="product_id" defaultValue="" required>
@@ -2986,6 +3053,70 @@ function auditActionLabel(action: string) {
     return labels[action] ?? action.replaceAll('_', ' ').replaceAll('.', ' - ');
 }
 
+function ApprovalRequestsPage({ props }: { props: AppProps }) {
+    const [status, setStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+    const requests = props.approvalRequests.filter((item) => status === 'all' || item.status === status);
+    const statusLabel = (value: ApprovalRequest['status']) => value === 'pending' ? 'Menunggu' : value === 'approved' ? 'Disetujui' : 'Ditolak';
+    const actionLabel = (value: ApprovalRequest['action']) => value === 'delete' ? 'Hapus' : 'Edit';
+    const subjectLabel = (value: string) => ({ Product: 'Produk', Category: 'Kategori', Supplier: 'Suplier', Expense: 'Pengeluaran', StockIn: 'Pembelian', Transaction: 'Transaksi' }[value] ?? value);
+    const payloadSummary = (payload: Record<string, unknown>) => Object.entries(payload)
+        .filter(([key]) => !['foto_produk', 'attachment', 'nota_pembelian', 'surat_jalan'].includes(key))
+        .slice(0, 5)
+        .map(([key, value]) => `${key.replaceAll('_', ' ')}: ${Array.isArray(value) ? `${value.length} item` : String(value ?? '-')}`)
+        .join(' | ');
+    const counts = {
+        pending: props.approvalRequests.filter((item) => item.status === 'pending').length,
+        approved: props.approvalRequests.filter((item) => item.status === 'approved').length,
+        rejected: props.approvalRequests.filter((item) => item.status === 'rejected').length,
+    };
+
+    return (
+        <section className="grid gap-6">
+            <div>
+                <h1 className="text-2xl font-semibold leading-8 text-foreground">Persetujuan Admin</h1>
+                <p className="text-sm text-muted-foreground">Tinjau permintaan edit dan hapus yang diajukan kasir.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+                <Card className="gap-1"><span className="text-sm font-semibold text-muted-foreground">Menunggu</span><strong className="text-2xl text-warningemphasis">{counts.pending}</strong></Card>
+                <Card className="gap-1"><span className="text-sm font-semibold text-muted-foreground">Disetujui</span><strong className="text-2xl text-successemphasis">{counts.approved}</strong></Card>
+                <Card className="gap-1"><span className="text-sm font-semibold text-muted-foreground">Ditolak</span><strong className="text-2xl text-error">{counts.rejected}</strong></Card>
+            </div>
+            <Card>
+                <div className="mb-5 flex flex-wrap gap-2">
+                    {(['pending', 'approved', 'rejected', 'all'] as const).map((value) => (
+                        <Button key={value} variant={status === value ? 'primary' : 'soft'} onClick={() => setStatus(value)}>
+                            {value === 'all' ? 'Semua' : statusLabel(value)}
+                        </Button>
+                    ))}
+                </div>
+                <DataTable className="[&_table]:min-w-[980px] [&_td]:align-top">
+                    <table>
+                        <thead><tr><th>Waktu</th><th>Kasir</th><th>Permintaan</th><th>Data</th><th>Rincian</th><th>Status</th><th className="!text-center">Aksi</th></tr></thead>
+                        <tbody>
+                            {requests.length ? requests.map((item) => (
+                                <tr key={item.id}>
+                                    <td className="whitespace-nowrap">{item.requested_at}</td>
+                                    <td><strong className="text-foreground">{item.requester}</strong></td>
+                                    <td><Badge variant={item.action === 'delete' ? 'red' : 'amber'}>{actionLabel(item.action)}</Badge></td>
+                                    <td><strong className="block text-foreground">{subjectLabel(item.subject_type)}</strong><span className="text-xs text-muted-foreground">{item.subject_name}</span></td>
+                                    <td className="max-w-sm text-xs leading-5 text-muted-foreground">{payloadSummary(item.payload) || 'Tidak ada perubahan isian.'}</td>
+                                    <td><Badge variant={item.status === 'approved' ? 'green' : item.status === 'rejected' ? 'red' : 'amber'}>{statusLabel(item.status)}</Badge>{item.reviewer && <span className="mt-1 block text-xs text-muted-foreground">oleh {item.reviewer}</span>}</td>
+                                    <td className="!text-center">
+                                        {item.status === 'pending' ? <div className="flex justify-center gap-2">
+                                            <Button variant="primary" onClick={() => { if (item.approve_url && window.confirm(`Setujui ${actionLabel(item.action).toLowerCase()} ${item.subject_name}?`)) postForm(item.approve_url, props.csrf, { _method: 'PUT' }); }}>Setujui</Button>
+                                            <Button variant="danger" onClick={() => { const notes = window.prompt('Alasan penolakan (opsional):', ''); if (notes !== null && item.reject_url) postForm(item.reject_url, props.csrf, { _method: 'PUT', review_notes: notes }); }}>Tolak</Button>
+                                        </div> : <span className="text-xs text-muted-foreground">{item.reviewed_at ?? '-'}</span>}
+                                    </td>
+                                </tr>
+                            )) : <tr><td className="text-center text-muted-foreground" colSpan={7}>Tidak ada permintaan pada status ini.</td></tr>}
+                        </tbody>
+                    </table>
+                </DataTable>
+            </Card>
+        </section>
+    );
+}
+
 function AuditLoginPage({ props }: { props: AppProps }) {
     const { sortDirection, sortKey, toggleSort } = useTableSort<'time' | 'user' | 'activity'>('time', 'desc');
     const sortedLogs = [...props.auditLogs].sort((first, second) => {
@@ -3051,10 +3182,10 @@ function OperationalPanels({ props, compact = false }: { props: AppProps; compac
                 </DataTable>
             </Card>
 
-            {props.user.isAdmin && <Card title="Stock Opname">
+                    {<Card title="Stock Opname">
                 <FormGrid method="POST" action={props.routes.stockOpnamesStore ?? ''}>
                     <input type="hidden" name="_token" value={props.csrf} />
-                    <Field label="Tanggal"><input name="opname_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} /></Field>
+                            <Field label="Tanggal"><EditableDateInput name="opname_date" defaultValue={todayInputDate()} label="Tanggal stok opname" /></Field>
                     <Field label="Produk"><select name="product_id" required>{props.products.map((product) => <option key={product.id} value={product.id}>{product.nama_barang} - sistem {product.stok}</option>)}</select></Field>
                     <Field label="Stok Fisik"><input name="actual_stock" type="number" min={0} required /></Field>
                     <Field label="Alasan"><input name="reason" required /></Field>
@@ -3745,7 +3876,7 @@ function TransactionTable({ transactions, showCashier, csrf, onEdit }: { transac
                                         <a className="grid size-7 place-items-center rounded-full text-primary transition hover:bg-lightprimary [&_svg]:size-3.5" href={transaction.receipt_url} target="_blank" rel="noreferrer" title="Preview nota" aria-label={`Preview nota ${transaction.kode_transaksi}`}><NavIcon name="print" /></a>
                                         <a className="grid size-7 place-items-center rounded-full text-success transition hover:bg-lightsuccess [&_svg]:size-3.5" href={transaction.receipt_jpeg_url} title="Download JPEG" aria-label={`Download JPEG ${transaction.kode_transaksi}`}><NavIcon name="download" /></a>
                                         {!isVoid && transaction.payment_status === 'pending' && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.settle_url, csrf, { _method: 'PUT', payment_type: 'cash', uang_diterima: transaction.total })}>Lunasi</button>}
-                                        {showCashier && !isVoid && transaction.payment_type === 'transfer' && transaction.payment_status === 'paid' && !transaction.payment_verified_at && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.verify_transfer_url, csrf, { _method: 'PUT' })}>Verifikasi</button>}
+                                    {transaction.verify_transfer_url && !isVoid && transaction.payment_type === 'transfer' && transaction.payment_status === 'paid' && !transaction.payment_verified_at && <button className="rounded-md px-2 py-1 text-xs font-semibold text-primary transition hover:bg-lightprimary" type="button" onClick={() => postForm(transaction.verify_transfer_url, csrf, { _method: 'PUT' })}>Verifikasi</button>}
                                         {showCashier && !isVoid && <button className="grid size-7 place-items-center rounded-full text-error transition hover:bg-lighterror [&_svg]:size-3.5" type="button" title="Hapus" aria-label={`Hapus ${transaction.kode_transaksi}`} onClick={() => deleteTransaction(transaction)}><NavIcon name="trash" /></button>}
                                     </div>
                                 </td>

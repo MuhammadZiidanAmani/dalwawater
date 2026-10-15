@@ -9,7 +9,7 @@ class TransactionPolicy
 {
     public function view(User $user, Transaction $transaction): bool
     {
-        return $user->isAdmin() || $transaction->user_id === $user->id;
+        return $user->isActive();
     }
 
     public function update(User $user, Transaction $transaction): bool
@@ -19,12 +19,12 @@ class TransactionPolicy
 
     public function delete(User $user, Transaction $transaction): bool
     {
-        return $user->isAdmin();
+        return $user->isActive();
     }
 
     public function settle(User $user, Transaction $transaction): bool
     {
-        return $this->view($user, $transaction);
+        return $user->isAdmin() || $transaction->user_id === $user->id;
     }
 
     public function verifyTransfer(User $user, Transaction $transaction): bool

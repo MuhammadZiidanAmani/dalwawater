@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ApprovalRequest;
 use App\Models\Expense;
 use App\Models\Product;
 use App\Models\StockAdjustment;
@@ -108,6 +109,15 @@ class OperationalFlowTest extends TestCase
             ])
             ->assertRedirect(route('dashboard', ['page' => 'transaction-history']));
 
+        $this->assertSame(10000, $transaction->fresh()->total);
+        $this->assertSame(8, $product->fresh()->stok);
+
+        $approval = ApprovalRequest::sole();
+        $this->actingAs($admin)
+            ->put(route('approval-requests.approve', $approval))
+            ->assertRedirect(route('dashboard', ['page' => 'approvals']));
+
+        $this->assertSame('approved', $approval->fresh()->status);
         $this->assertSame(5000, $transaction->fresh()->total);
         $this->assertSame(9, $product->fresh()->stok);
 

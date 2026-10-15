@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
 use App\Models\Product;
+use App\Services\ApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -26,9 +27,17 @@ class ProductController extends Controller
         return redirect()->route('dashboard', ['page' => 'inventory'])->with('success', 'Barang berhasil ditambahkan.');
     }
 
-    public function update(Request $request, Product $product): RedirectResponse
+    public function update(Request $request, Product $product, ApprovalService $approvals): RedirectResponse
     {
         $data = $this->validated($request, $product);
+
+        if (! $request->user()->isAdmin()) {
+            unset($data['foto_produk']);
+            $approvals->submit($request, $product, 'update', $data, ['foto_produk']);
+
+            return redirect()->route('dashboard', ['page' => 'inventory'])
+                ->with('success', 'Perubahan produk dikirim untuk persetujuan admin.');
+        }
 
         if ($request->hasFile('foto_produk')) {
             if ($product->foto_produk) {
@@ -45,8 +54,14 @@ class ProductController extends Controller
         return redirect()->route('dashboard', ['page' => 'inventory'])->with('success', 'Barang berhasil diperbarui.');
     }
 
-    public function destroy(Product $product): RedirectResponse
+    public function destroy(Request $request, Product $product, ApprovalService $approvals): RedirectResponse
     {
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $product, 'delete');
+
+            return redirect()->route('dashboard', ['page' => 'inventory'])
+                ->with('success', 'Penghapusan produk dikirim untuk persetujuan admin.');
+        }
         if ($product->transactionDetails()->exists()) {
             $product->update(['status' => 'inactive']);
 

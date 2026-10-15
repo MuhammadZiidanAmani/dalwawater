@@ -9,7 +9,7 @@ class StockInRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() === true;
+        return $this->user()?->isActive() === true;
     }
 
     public function rules(): array

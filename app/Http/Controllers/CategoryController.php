@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AuditLog;
 use App\Models\Category;
 use App\Models\Product;
+use App\Services\ApprovalService;
 use Illuminate\Http\Request;
 
 class CategoryController extends Controller
@@ -24,11 +25,20 @@ class CategoryController extends Controller
         return redirect()->route('dashboard', ['page' => 'categories'])->with('success', 'Kategori produk berhasil disimpan.');
     }
 
-    public function update(Request $request, Category $category)
+    public function update(Request $request, Category $category, ApprovalService $approvals)
     {
         $request->validate([
             'nama_kategori' => 'required|string|max:255|unique:categories,nama_kategori,'.$category->id,
         ]);
+
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $category, 'update', [
+                'nama_kategori' => $request->string('nama_kategori')->toString(),
+            ]);
+
+            return redirect()->route('dashboard', ['page' => 'categories'])
+                ->with('success', 'Perubahan kategori dikirim untuk persetujuan admin.');
+        }
 
         $oldName = $category->nama_kategori;
 
@@ -45,8 +55,14 @@ class CategoryController extends Controller
         return redirect()->route('dashboard', ['page' => 'categories'])->with('success', 'Kategori produk berhasil diperbarui.');
     }
 
-    public function destroy(Category $category)
+    public function destroy(Request $request, Category $category, ApprovalService $approvals)
     {
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $category, 'delete');
+
+            return redirect()->route('dashboard', ['page' => 'categories'])
+                ->with('success', 'Penghapusan kategori dikirim untuk persetujuan admin.');
+        }
         if (Product::where('kategori', $category->nama_kategori)->exists()) {
             return redirect()->back()->withErrors([
                 'kategori' => 'Kategori masih dipakai produk dan belum bisa dihapus.',

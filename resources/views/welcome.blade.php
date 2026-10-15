@@ -17,7 +17,7 @@
 @php
     $rupiah = fn ($value) => 'Rp '.number_format((int) $value, 0, ',', '.');
     $page = request('page', auth()->check() ? 'dashboard' : 'login');
-    if (auth()->check() && ! auth()->user()->isAdmin() && ! in_array($page, ['dashboard', 'transactions', 'inventory', 'history', 'operations', 'account'], true)) {
+    if (auth()->check() && ! auth()->user()->isAdmin() && in_array($page, ['settings', 'cashiers', 'approvals', 'audit-login'], true)) {
         $page = 'dashboard';
     }
     if (auth()->check() && auth()->user()->isAdmin() && $page === 'settings-general') {
@@ -71,8 +71,8 @@
             'status' => $product->status,
             'foto_produk_url' => $product->foto_produk ? asset('storage/'.$product->foto_produk) : null,
             'deskripsi' => $product->deskripsi,
-            'update_url' => auth()->user()->isAdmin() ? route('products.update', $product) : null,
-            'destroy_url' => auth()->user()->isAdmin() ? route('products.destroy', $product) : null,
+            'update_url' => route('products.update', $product),
+            'destroy_url' => route('products.destroy', $product),
         ];
         $mapTransaction = fn ($transaction) => [
             'id' => $transaction->id,
@@ -95,7 +95,7 @@
             'receipt_jpeg_url' => route('transactions.receipt-jpeg', $transaction),
             'thermal_receipt_url' => route('transactions.thermal-receipt', $transaction),
             'thermal_payload_url' => route('transactions.thermal-payload', $transaction),
-            'update_url' => (auth()->user()->isAdmin() || auth()->id() === $transaction->user_id) ? route('transactions.update', $transaction) : null,
+            'update_url' => route('transactions.update', $transaction),
             'settle_url' => route('transactions.settle', $transaction),
             'destroy_url' => route('transactions.destroy', $transaction),
             'verify_transfer_url' => auth()->user()->isAdmin() ? route('transactions.verify-transfer', $transaction) : null,
@@ -132,8 +132,8 @@
             'keterangan' => $stock->keterangan,
             'nota_url' => $stock->nota_pembelian ? route('stock-ins.document', [$stock, 'nota_pembelian']) : null,
             'surat_jalan_url' => $stock->surat_jalan ? route('stock-ins.document', [$stock, 'surat_jalan']) : null,
-            'update_url' => auth()->user()->isAdmin() ? route('stock-ins.update', $stock) : null,
-            'destroy_url' => auth()->user()->isAdmin() ? route('stock-ins.destroy', $stock) : null,
+            'update_url' => route('stock-ins.update', $stock),
+            'destroy_url' => route('stock-ins.destroy', $stock),
         ];
         $mapExpense = fn ($expense) => [
             'id' => $expense->id,
@@ -149,8 +149,8 @@
             'notes' => $expense->notes,
             'user' => $expense->user?->name ?? 'Tidak diketahui',
             'attachment_url' => $expense->attachment ? route('expenses.attachment', $expense) : null,
-            'update_url' => auth()->user()->isAdmin() ? route('expenses.update', $expense) : null,
-            'destroy_url' => auth()->user()->isAdmin() ? route('expenses.destroy', $expense) : null,
+            'update_url' => route('expenses.update', $expense),
+            'destroy_url' => route('expenses.destroy', $expense),
         ];
         $mapShift = fn ($shift) => [
             'id' => $shift->id,
@@ -187,6 +187,29 @@
             'user' => $log->user?->name ?? 'System',
             'action' => $log->action,
         ];
+        $mapApproval = fn ($approval) => [
+            'id' => $approval->id,
+            'requester' => $approval->requester?->name ?? 'Tidak diketahui',
+            'reviewer' => $approval->reviewer?->name,
+            'subject_type' => class_basename($approval->subject_type),
+            'subject_name' => match (true) {
+                $approval->subject instanceof \App\Models\Transaction => $approval->subject->kode_transaksi,
+                $approval->subject instanceof \App\Models\Product => $approval->subject->nama_barang,
+                $approval->subject instanceof \App\Models\Category => $approval->subject->nama_kategori,
+                $approval->subject instanceof \App\Models\Supplier => $approval->subject->nama,
+                $approval->subject instanceof \App\Models\Expense => $approval->subject->uraian ?? $approval->subject->description,
+                $approval->subject instanceof \App\Models\StockIn => $approval->subject->invoice_number ?? 'Pembelian #'.$approval->subject_id,
+                default => 'Data #'.$approval->subject_id,
+            },
+            'action' => $approval->action,
+            'status' => $approval->status,
+            'payload' => $approval->payload ?? [],
+            'review_notes' => $approval->review_notes,
+            'requested_at' => $formatDateTime($approval->created_at),
+            'reviewed_at' => $formatDateTime($approval->reviewed_at),
+            'approve_url' => auth()->user()->isAdmin() && $approval->status === 'pending' ? route('approval-requests.approve', $approval) : null,
+            'reject_url' => auth()->user()->isAdmin() && $approval->status === 'pending' ? route('approval-requests.reject', $approval) : null,
+        ];
         $dalwaReactProps = [
             'csrf' => csrf_token(),
             'user' => [
@@ -202,18 +225,18 @@
                 'dashboard' => route('dashboard'),
                 'logout' => route('logout'),
                 'transactionsStore' => route('transactions.store'),
-                'transactionsExportExcel' => auth()->user()->isAdmin() ? route('transactions.export-excel', $transactionExportFilters) : null,
-                'transactionsExportPdf' => auth()->user()->isAdmin() ? route('transactions.export-pdf', $transactionExportFilters) : null,
+                'transactionsExportExcel' => route('transactions.export-excel', $transactionExportFilters),
+                'transactionsExportPdf' => route('transactions.export-pdf', $transactionExportFilters),
                 'productsStore' => route('products.store'),
-                'categoriesStore' => auth()->user()->isAdmin() ? route('categories.store') : null,
-                'suppliersStore' => auth()->user()->isAdmin() ? route('suppliers.store') : null,
+                'categoriesStore' => route('categories.store'),
+                'suppliersStore' => route('suppliers.store'),
                 'stockInsStore' => route('stock-ins.store'),
-                'stockOpnamesStore' => auth()->user()->isAdmin() ? route('stock-opnames.store') : null,
-                'expensesStore' => auth()->user()->isAdmin() ? route('expenses.store') : null,
-                'expensesPrint' => auth()->user()->isAdmin() ? route('expenses.print', [
+                'stockOpnamesStore' => route('stock-opnames.store'),
+                'expensesStore' => route('expenses.store'),
+                'expensesPrint' => route('expenses.print', [
                     'start_date' => $startDate ?? null,
                     'end_date' => $endDate ?? null,
-                ]) : null,
+                ]),
                 'cashiersStore' => route('cashiers.store'),
                 'cashierShiftsOpen' => route('cashier-shifts.open'),
                 'profileUpdate' => route('profile.update'),
@@ -236,8 +259,8 @@
             'categories' => ($categories ?? collect())->map(fn ($category) => [
                 'id' => $category->id,
                 'nama_kategori' => $category->nama_kategori,
-                'update_url' => auth()->user()->isAdmin() ? route('categories.update', $category) : null,
-                'destroy_url' => auth()->user()->isAdmin() ? route('categories.destroy', $category) : null,
+                'update_url' => route('categories.update', $category),
+                'destroy_url' => route('categories.destroy', $category),
             ])->values(),
             'suppliers' => ($suppliers ?? collect())->map(fn ($supplier) => [
                 'id' => $supplier->id,
@@ -245,8 +268,8 @@
                 'nomor_telepon' => $supplier->nomor_telepon,
                 'email' => $supplier->email,
                 'alamat' => $supplier->alamat,
-                'update_url' => auth()->user()->isAdmin() ? route('suppliers.update', $supplier) : null,
-                'destroy_url' => auth()->user()->isAdmin() ? route('suppliers.destroy', $supplier) : null,
+                'update_url' => route('suppliers.update', $supplier),
+                'destroy_url' => route('suppliers.destroy', $supplier),
             ])->values(),
             'cashiers' => ($cashiers ?? collect())->map(fn ($cashier) => [
                 'id' => $cashier->id,
@@ -262,6 +285,7 @@
             'recentShifts' => ($recentShifts ?? collect())->map($mapShift)->values(),
             'stockOpnames' => ($stockOpnames ?? collect())->map($mapOpname)->values(),
             'auditLogs' => ($auditLogs ?? collect())->map($mapAudit)->values(),
+            'approvalRequests' => ($approvalRequests ?? collect())->map($mapApproval)->values(),
             'salesChart' => ($salesChart ?? collect())->map(fn ($point) => [
                 'label' => $point['label'],
                 'count' => (int) $point['count'],

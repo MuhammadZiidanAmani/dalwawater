@@ -64,15 +64,13 @@ class DashboardMetrics
             ->get()
             ->keyBy('date_key');
 
-        $expenseByDate = $user->isAdmin()
-            ? Expense::query()
-                ->whereDate('spent_at', '>=', $periodStart->toDateString())
-                ->whereDate('spent_at', '<=', $periodEnd->toDateString())
-                ->selectRaw($expensePeriodExpression.' as date_key, COALESCE(SUM(amount), 0) as expense')
-                ->groupBy('date_key')
-                ->pluck('expense', 'date_key')
-                ->map(fn ($value): int => (int) $value)
-            : collect();
+        $expenseByDate = Expense::query()
+            ->whereDate('spent_at', '>=', $periodStart->toDateString())
+            ->whereDate('spent_at', '<=', $periodEnd->toDateString())
+            ->selectRaw($expensePeriodExpression.' as date_key, COALESCE(SUM(amount), 0) as expense')
+            ->groupBy('date_key')
+            ->pluck('expense', 'date_key')
+            ->map(fn ($value): int => (int) $value);
 
         $periods = $this->chartPeriods($periodStart, $periodEnd, $groupBy);
 

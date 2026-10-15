@@ -18,7 +18,7 @@ class CashierReportAccessTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_cashier_history_only_contains_their_own_transactions(): void
+    public function test_cashier_history_contains_all_transactions(): void
     {
         $cashier = $this->cashier('cashier-one');
         $otherCashier = $this->cashier('cashier-two');
@@ -36,13 +36,13 @@ class CashierReportAccessTest extends TestCase
 
         $props = $this->reactProps($response);
         $this->assertFalse($props['user']['isAdmin']);
-        $this->assertSame($ownTransaction->kode_transaksi, $props['historyTransactions'][0]['kode_transaksi']);
-        $this->assertSame(100000, $props['historyTransactions'][0]['total']);
-        $this->assertNull($props['routes']['transactionsExportExcel']);
-        $this->assertNotContains($otherTransaction->kode_transaksi, array_column($props['historyTransactions'], 'kode_transaksi'));
+        $codes = array_column($props['historyTransactions'], 'kode_transaksi');
+        $this->assertContains($ownTransaction->kode_transaksi, $codes);
+        $this->assertContains($otherTransaction->kode_transaksi, $codes);
+        $this->assertNotNull($props['routes']['transactionsExportExcel']);
     }
 
-    public function test_cashier_can_only_open_their_own_receipt(): void
+    public function test_cashier_can_open_all_receipts(): void
     {
         $cashier = $this->cashier('cashier-one');
         $otherCashier = $this->cashier('cashier-two');
@@ -55,21 +55,30 @@ class CashierReportAccessTest extends TestCase
 
         $this->actingAs($cashier)
             ->get(route('transactions.receipt', $otherTransaction))
-            ->assertForbidden();
+            ->assertOk();
     }
 
-    public function test_cashier_cannot_export_or_delete_transactions(): void
+    public function test_cashier_can_export_and_delete_requires_approval(): void
     {
         $cashier = $this->cashier('cashier-one');
         $transaction = $this->transaction($cashier, 'TRX-OWN-0001', 100000);
 
         $this->actingAs($cashier)
             ->get(route('transactions.export-excel'))
-            ->assertForbidden();
+            ->assertOk();
 
         $this->actingAs($cashier)
             ->delete(route('transactions.destroy', $transaction))
-            ->assertForbidden();
+            ->assertRedirect();
+
+        $this->assertSame('completed', $transaction->fresh()->status);
+        $this->assertDatabaseHas('approval_requests', [
+            'requester_id' => $cashier->id,
+            'subject_type' => Transaction::class,
+            'subject_id' => $transaction->id,
+            'action' => 'delete',
+            'status' => 'pending',
+        ]);
     }
 
     public function test_admin_can_view_another_cashiers_receipt(): void
@@ -122,7 +131,8 @@ class CashierReportAccessTest extends TestCase
         $props = $this->reactProps($response);
         $this->assertFalse($props['user']['isAdmin']);
         $this->assertSame('cashier', $props['user']['role']);
-        $this->assertNull($props['routes']['transactionsExportExcel']);
+        $this->assertNotNull($props['routes']['transactionsExportExcel']);
+        $this->assertArrayHasKey('approvalRequests', $props);
 
         $this->actingAs($cashier)
             ->put(route('profile.update'), [

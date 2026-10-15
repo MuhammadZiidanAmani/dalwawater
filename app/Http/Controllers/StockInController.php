@@ -6,7 +6,9 @@ use App\Http\Requests\StockInRequest;
 use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\StockIn;
+use App\Services\ApprovalService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -68,9 +70,17 @@ class StockInController extends Controller
         return redirect()->route('dashboard', ['page' => 'purchases'])->with('success', 'Barang masuk tersimpan dan stok bertambah.');
     }
 
-    public function update(StockInRequest $request, StockIn $stockIn): RedirectResponse
+    public function update(StockInRequest $request, StockIn $stockIn, ApprovalService $approvals): RedirectResponse
     {
         $data = $request->stockData();
+
+        if (! $request->user()->isAdmin()) {
+            unset($data['nota_pembelian'], $data['surat_jalan']);
+            $approvals->submit($request, $stockIn, 'update', $data, ['nota_pembelian', 'surat_jalan']);
+
+            return redirect()->route('dashboard', ['page' => 'purchases'])
+                ->with('success', 'Perubahan pembelian dikirim untuk persetujuan admin.');
+        }
 
         if ($request->hasFile('nota_pembelian')) {
             if ($stockIn->nota_pembelian) {
@@ -132,8 +142,14 @@ class StockInController extends Controller
         return redirect()->route('dashboard', ['page' => 'purchases'])->with('success', 'Pembelian berhasil diperbarui.');
     }
 
-    public function destroy(StockIn $stockIn): RedirectResponse
+    public function destroy(Request $request, StockIn $stockIn, ApprovalService $approvals): RedirectResponse
     {
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $stockIn, 'delete');
+
+            return redirect()->route('dashboard', ['page' => 'purchases'])
+                ->with('success', 'Penghapusan pembelian dikirim untuk persetujuan admin.');
+        }
         DB::transaction(function () use ($stockIn): void {
             $product = Product::lockForUpdate()->find($stockIn->product_id);
 

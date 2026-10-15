@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ExpenseRequest;
 use App\Models\AuditLog;
 use App\Models\Expense;
+use App\Services\ApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -34,9 +35,17 @@ class ExpenseController extends Controller
         return redirect()->route('dashboard', ['page' => 'operations'])->with('success', 'Pengeluaran berhasil ditambahkan.');
     }
 
-    public function update(ExpenseRequest $request, Expense $expense): RedirectResponse
+    public function update(ExpenseRequest $request, Expense $expense, ApprovalService $approvals): RedirectResponse
     {
         $data = $request->expenseData();
+
+        if (! $request->user()->isAdmin()) {
+            unset($data['attachment']);
+            $approvals->submit($request, $expense, 'update', $data, ['attachment']);
+
+            return redirect()->route('dashboard', ['page' => 'operations'])
+                ->with('success', 'Perubahan pengeluaran dikirim untuk persetujuan admin.');
+        }
 
         if ($request->hasFile('attachment')) {
             $this->deleteAttachment($expense);
@@ -55,8 +64,14 @@ class ExpenseController extends Controller
         return redirect()->route('dashboard', ['page' => 'operations'])->with('success', 'Pengeluaran berhasil diperbarui.');
     }
 
-    public function destroy(Expense $expense): RedirectResponse
+    public function destroy(Request $request, Expense $expense, ApprovalService $approvals): RedirectResponse
     {
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $expense, 'delete');
+
+            return redirect()->route('dashboard', ['page' => 'operations'])
+                ->with('success', 'Penghapusan pengeluaran dikirim untuk persetujuan admin.');
+        }
         $this->deleteAttachment($expense);
 
         AuditLog::record('expense.deleted', $expense, [

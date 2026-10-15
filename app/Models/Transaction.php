@@ -85,9 +85,6 @@ class Transaction extends Model
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return $query->when(
-            ! $user->isAdmin(),
-            fn (Builder $query) => $query->where('user_id', $user->id),
-        );
+        return $query;
     }
 }

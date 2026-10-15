@@ -13,6 +13,7 @@ use App\Models\CashierShift;
 use App\Models\PaymentVerification;
 use App\Models\Product;
 use App\Models\Transaction;
+use App\Services\ApprovalService;
 use App\Services\ThermalReceiptPrinter;
 use App\Services\ThermalReceiptText;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -251,9 +252,16 @@ class TransactionController extends Controller
         return response()->json($this->thermalReceiptPayload($transaction));
     }
 
-    public function update(UpdateTransactionRequest $request, Transaction $transaction): RedirectResponse
+    public function update(UpdateTransactionRequest $request, Transaction $transaction, ApprovalService $approvals): RedirectResponse
     {
         $data = $request->validated();
+
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $transaction, 'update', $data);
+
+            return redirect()->route('dashboard', ['page' => 'transaction-history'])
+                ->with('success', 'Perubahan transaksi dikirim untuk persetujuan admin.');
+        }
 
         DB::transaction(function () use ($data, $transaction): void {
             $lockedTransaction = Transaction::with('details.product')->lockForUpdate()->findOrFail($transaction->id);
@@ -370,13 +378,19 @@ class TransactionController extends Controller
         }
     }
 
-    public function destroy(Transaction $transaction): RedirectResponse
+    public function destroy(Request $request, Transaction $transaction, ApprovalService $approvals): RedirectResponse
     {
         $this->authorize('delete', $transaction);
 
         $data = request()->validate([
             'void_reason' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        if (! $request->user()->isAdmin()) {
+            $approvals->submit($request, $transaction, 'delete', $data);
+
+            return redirect()->back()->with('success', 'Penghapusan transaksi dikirim untuk persetujuan admin.');
+        }
 
         DB::transaction(function () use ($transaction, $data) {
             $lockedTransaction = Transaction::with('details.product')->lockForUpdate()->findOrFail($transaction->id);
