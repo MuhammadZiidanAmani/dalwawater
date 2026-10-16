@@ -23,7 +23,7 @@ class UpdateTransactionRequest extends FormRequest
             'payment_type' => ['required', 'in:cash,transfer'],
             'uang_diterima' => ['nullable', 'integer', 'min:0'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'exists:products,id'],
+            'items.*.product_id' => ['required', 'distinct:strict', 'exists:products,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.discount_value' => ['nullable', 'integer', 'min:0'],
         ];

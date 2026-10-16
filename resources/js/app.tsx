@@ -1,6 +1,7 @@
 import React, { FormEvent, useEffect, useId, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Badge, Button, Card, DataTable, Field, FormGrid, FormStack, Tabs } from './components';
+import ErrorBoundary from './ErrorBoundary';
 
 type User = {
     id: number;
@@ -213,6 +214,15 @@ type ReceiptSettings = {
     receipt_show_payment: string;
 };
 
+type PaginationMeta = {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+};
+
 type AppProps = {
     csrf: string;
     user: User;
@@ -242,6 +252,7 @@ type AppProps = {
     netProfitChart: SalesPoint[];
     financialChart: FinancialChartPoint[];
     monthlyProductSales: ProductSalesPoint[];
+    pagination: Record<string, PaginationMeta | null>;
     filters: Record<string, string | null>;
     flash: {
         success: string | null;
@@ -293,6 +304,34 @@ const formatThousands = (value: string | number | null | undefined) => {
 
     return digits ? Number(digits).toLocaleString('id-ID') : '';
 };
+
+function ThousandsInput({
+    name,
+    defaultValue = '',
+    required = false,
+    placeholder,
+}: {
+    name: string;
+    defaultValue?: string | number;
+    required?: boolean;
+    placeholder?: string;
+}) {
+    const [value, setValue] = useState(numericOnly(defaultValue));
+
+    return (
+        <>
+            <input type="hidden" name={name} value={value} />
+            <input
+                type="text"
+                inputMode="numeric"
+                value={formatThousands(value)}
+                onChange={(event) => setValue(numericOnly(event.target.value))}
+                placeholder={placeholder}
+                required={required}
+            />
+        </>
+    );
+}
 const parseDecimal = (value: string | number | null | undefined) => Number(String(value ?? '').replace(',', '.'));
 const normalizeSearchText = (value: string | number | null | undefined) =>
     String(value ?? '')
@@ -681,6 +720,31 @@ function postForm(action: string | null, csrf: string, fields: Record<string, st
     form.submit();
 }
 
+function ServerPagination({ meta }: { meta: PaginationMeta | null | undefined }) {
+    if (!meta || meta.last_page <= 1) {
+        return null;
+    }
+
+    const goTo = (targetPage: number) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('data_page', String(targetPage));
+        window.location.assign(url.toString());
+    };
+
+    return (
+        <nav className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-ld pt-4" aria-label="Navigasi halaman data">
+            <span className="text-sm text-muted-foreground">
+                Menampilkan {meta.from ?? 0}-{meta.to ?? 0} dari {meta.total} data
+            </span>
+            <div className="flex items-center gap-2">
+                <Button variant="soft" disabled={meta.current_page <= 1} onClick={() => goTo(meta.current_page - 1)}>Sebelumnya</Button>
+                <span className="px-2 text-sm font-semibold text-foreground">{meta.current_page} / {meta.last_page}</span>
+                <Button variant="soft" disabled={meta.current_page >= meta.last_page} onClick={() => goTo(meta.current_page + 1)}>Berikutnya</Button>
+            </div>
+        </nav>
+    );
+}
+
 function App({ props }: { props: AppProps }) {
     const initialPage = new URLSearchParams(window.location.search).get('page') || 'dashboard';
     const [page, setPage] = useState(initialPage);
@@ -698,7 +762,7 @@ function App({ props }: { props: AppProps }) {
     const navGroups = navFor(props.user.isAdmin);
     const nav = navGroups.flatMap((group) => group.items);
     const bottomNav = nav;
-    const lowStockProducts = props.products.filter((product) => product.stok <= product.stok_minimal);
+    const lowStockProducts = props.lowStockProducts;
     const notificationCount = lowStockProducts.length;
 
     useEffect(() => {
@@ -720,6 +784,21 @@ function App({ props }: { props: AppProps }) {
     }, [props.flash.success, props.flash.warning]);
 
     const activate = (nextPage: string) => {
+        const serverPages = new Set([
+            'dashboard', 'transactions', 'inventory', 'categories', 'suppliers', 'purchases',
+            'stock', 'stock-opname', 'history', 'transaction-history', 'operations',
+            'audit-login', 'approvals', 'settings', 'account',
+        ]);
+
+        if (serverPages.has(nextPage) && nextPage !== page) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', nextPage);
+            url.searchParams.delete('data_page');
+            window.location.assign(url.toString());
+
+            return;
+        }
+
         setPage(nextPage);
         setSidebarOpen(false);
         setProfileOpen(false);
@@ -1093,6 +1172,7 @@ function MetricCard({ label, value, unit }: { label: string; value: number; unit
 
 function Transactions({ props }: { props: AppProps }) {
     const [cart, setCart] = useState<Record<number, CartItem>>({});
+    const [quantityInputs, setQuantityInputs] = useState<Record<number, string>>({});
     const [query, setQuery] = useState('');
     const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending'>('paid');
     const [paymentType, setPaymentType] = useState<'cash' | 'transfer'>('cash');
@@ -1121,6 +1201,11 @@ function Transactions({ props }: { props: AppProps }) {
     const canPay = items.length > 0 && !submitting && (paymentStatus === 'pending' || paymentType === 'transfer' || paid >= total);
 
     const addProduct = (product: Product) => {
+        setQuantityInputs((current) => {
+            const next = { ...current };
+            delete next[product.id];
+            return next;
+        });
         setCart((current) => {
             const existing = current[product.id];
             const nextQty = Math.min(product.stok, (existing?.qty ?? 0) + 1);
@@ -1140,16 +1225,48 @@ function Transactions({ props }: { props: AppProps }) {
         setCart((current) => {
             const item = current[id];
             if (!item) return current;
-            if (qty < 1) {
-                const clone = { ...current };
-                delete clone[id];
-                return clone;
-            }
-            return { ...current, [id]: { ...item, qty: Math.min(item.stok, qty) } };
+            if (item.stok < 1) return current;
+
+            const nextQty = Number.isFinite(qty)
+                ? Math.max(1, Math.min(item.stok, Math.trunc(qty)))
+                : item.qty;
+
+            return { ...current, [id]: { ...item, qty: nextQty } };
         });
     };
 
+    const updateQuantityInput = (id: number, value: string) => {
+        const digits = numericOnly(value);
+
+        if (digits === '') {
+            setQuantityInputs((current) => ({ ...current, [id]: '' }));
+            return;
+        }
+
+        const item = cart[id];
+        if (!item) return;
+
+        const nextQty = Math.max(1, Math.min(item.stok, Number(digits)));
+
+        setQuantityInputs((current) => ({ ...current, [id]: String(nextQty) }));
+        updateQty(id, nextQty);
+    };
+
+    const commitQuantityInput = (id: number) => {
+        setQuantityInputs((current) => {
+            const next = { ...current };
+            delete next[id];
+            return next;
+        });
+    };
+
+    const stepQuantity = (id: number, qty: number) => {
+        commitQuantityInput(id);
+        updateQty(id, qty);
+    };
+
     const removeItem = (id: number) => {
+        commitQuantityInput(id);
         setCart((current) => {
             const clone = { ...current };
             delete clone[id];
@@ -1294,9 +1411,20 @@ function Transactions({ props }: { props: AppProps }) {
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <button className="grid size-8 place-items-center rounded-md border border-ld" type="button" onClick={() => updateQty(item.id, item.qty - 1)}>-</button>
-                                    <input className="h-8 w-16 rounded-md border border-ld bg-card px-2 text-center text-sm outline-none" type="number" value={item.qty} min={1} max={item.stok} onChange={(event) => updateQty(item.id, Number(event.target.value))} />
-                                    <button className="grid size-8 place-items-center rounded-md border border-ld" type="button" onClick={() => updateQty(item.id, item.qty + 1)}>+</button>
+                                    <button className="grid size-8 place-items-center rounded-md border border-ld" type="button" onClick={() => stepQuantity(item.id, item.qty - 1)}>-</button>
+                                    <input
+                                        className="h-8 w-16 rounded-md border border-ld bg-card px-2 text-center text-sm outline-none"
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={formatThousands(quantityInputs[item.id] ?? String(item.qty))}
+                                        onChange={(event) => updateQuantityInput(item.id, event.target.value)}
+                                        onBlur={() => commitQuantityInput(item.id)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter') event.currentTarget.blur();
+                                        }}
+                                        aria-label={`Jumlah ${item.nama_barang}`}
+                                    />
+                                    <button className="grid size-8 place-items-center rounded-md border border-ld" type="button" onClick={() => stepQuantity(item.id, item.qty + 1)}>+</button>
                                 </div>
                                 <div className="grid gap-1.5 rounded-md border border-dashed border-ld px-2 py-1.5">
                                     <div className="flex items-center justify-between gap-2">
@@ -1418,7 +1546,7 @@ function Inventory({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
                     </Button>
                 </div>
             <ProductTable products={filteredProducts} showActions csrf={props.csrf} onEdit={onEdit} />
-                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredProducts.length} dari {props.products.length} data</p>
+                <ServerPagination meta={props.pagination.products} />
             </Card>
         </section>
     );
@@ -1522,7 +1650,7 @@ function StockPage({ props }: { props: AppProps }) {
                     </div>
                 </div>
                 <StockTable products={filteredProducts} />
-                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredProducts.length} dari {props.products.length} data</p>
+                <ServerPagination meta={props.pagination.products} />
             </Card>
         </section>
     );
@@ -1550,7 +1678,7 @@ function Purchases({ onCreate, onEdit, props }: { onCreate: () => void; onEdit: 
                     <input className="min-h-10 w-full border-0 bg-transparent text-sm text-foreground outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari faktur, suplier, produk, atau barcode..." aria-label="Cari pembelian" />
                 </div>
                 <PurchaseTable purchases={filteredPurchases} csrf={props.csrf} onEdit={onEdit} />
-                <p className="mt-3 text-sm text-muted-foreground">Menampilkan 1 - {filteredPurchases.length} dari {props.stockEntries.length} data</p>
+                <ServerPagination meta={props.pagination.stockEntries} />
             </Card>
         </section>
     );
@@ -2220,7 +2348,7 @@ function TransactionHistory({ props, onEdit }: { props: AppProps; onEdit: (trans
                     <Button className="h-10 w-full" type="submit">Filter</Button>
                 </form>
                 <TransactionTable transactions={filteredTransactions} showCashier csrf={props.csrf} onEdit={onEdit} />
-                <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredTransactions.length} dari {visibleTransactions.length} transaksi</p>
+                <ServerPagination meta={props.pagination.historyTransactions} />
             </Card>
         </section>
     );
@@ -2384,7 +2512,7 @@ function Operations({ onCreate, onEdit, props }: { props: AppProps; onCreate?: (
                     </label>
                 </div>
                 <ExpenseTable expenses={filteredExpenses} csrf={props.csrf} showActions onEdit={(expense) => onEdit?.(expense)} />
-                <p className="mt-3 text-sm text-muted-foreground">Menampilkan {filteredExpenses.length} dari {props.expenses.length} data</p>
+                <ServerPagination meta={props.pagination.expenses} />
             </Card>
         </section>
     );
@@ -2640,7 +2768,7 @@ function IncomeDonutChart({ rows }: { rows: Array<{ label: string; value: number
                 <div className="grid size-28 place-items-center rounded-full border border-ld bg-card text-center">
                     <div>
                         <span className="block text-xs font-bold uppercase text-muted-foreground">Total</span>
-                        <strong className="mt-1 block text-lg font-semibold text-foreground">{rupiahCompact(total)}</strong>
+                        <strong className="mt-1 block text-base font-semibold text-foreground">{rupiah(total)}</strong>
                     </div>
                 </div>
             </div>
@@ -2918,7 +3046,7 @@ function FinancialTrendChart({ points }: { points: FinancialChartPoint[] }) {
                                         <i className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: series.color }} />
                                         <span className="truncate">{series.label}</span>
                                     </span>
-                                    <strong className="whitespace-nowrap text-sm text-foreground">{rupiahCompact(series.value)}</strong>
+                                    <strong className="whitespace-nowrap text-sm text-foreground">{rupiah(series.value)}</strong>
                                 </div>
                             ))}
                     </div>
@@ -3112,6 +3240,7 @@ function ApprovalRequestsPage({ props }: { props: AppProps }) {
                         </tbody>
                     </table>
                 </DataTable>
+                <ServerPagination meta={props.pagination.approvalRequests} />
             </Card>
         </section>
     );
@@ -3139,6 +3268,7 @@ function AuditLoginPage({ props }: { props: AppProps }) {
                         <tbody>{sortedLogs.length ? sortedLogs.map((log) => <tr key={log.id}><td>{log.time}</td><td className="!text-left"><strong className="text-foreground">{log.user}</strong></td><td className="!text-left text-muted-foreground">{auditActionLabel(log.action)}</td></tr>) : <tr><td className="text-center text-muted-foreground" colSpan={3}>Belum ada aktivitas audit.</td></tr>}</tbody>
                     </table>
                 </DataTable>
+                <ServerPagination meta={props.pagination.auditLogs} />
             </Card>
         </section>
     );
@@ -3158,7 +3288,7 @@ function OperationalPanels({ props, compact = false }: { props: AppProps; compac
                         <FormGrid method="POST" action={props.currentShift.close_url}>
                             <input type="hidden" name="_token" value={props.csrf} />
                             <input type="hidden" name="_method" value="PUT" />
-                            <Field label="Uang Fisik Akhir"><input name="closing_cash" type="number" min={0} required /></Field>
+                            <Field label="Uang Fisik Akhir"><ThousandsInput name="closing_cash" required placeholder="0" /></Field>
                             <Field label="Catatan"><input name="notes" /></Field>
                             <Button variant="primary" type="submit">Tutup Shift</Button>
                         </FormGrid>
@@ -3166,7 +3296,7 @@ function OperationalPanels({ props, compact = false }: { props: AppProps; compac
                 ) : (
                     <FormGrid method="POST" action={props.routes.cashierShiftsOpen ?? ''}>
                         <input type="hidden" name="_token" value={props.csrf} />
-                        <Field label="Modal Awal"><input name="opening_cash" type="number" min={0} defaultValue={0} required /></Field>
+                        <Field label="Modal Awal"><ThousandsInput name="opening_cash" defaultValue={0} required placeholder="0" /></Field>
                         <Field label="Catatan"><input name="notes" /></Field>
                         <Button variant="primary" type="submit">Buka Shift</Button>
                     </FormGrid>
@@ -4012,6 +4142,10 @@ function PurchaseTable({ purchases, csrf, onEdit }: { purchases: StockIn[]; csrf
 
 const root = document.getElementById('dalwa-react-root');
 if (root && window.__DALWA_APP__) {
-    createRoot(root).render(<App props={window.__DALWA_APP__} />);
+    createRoot(root).render(
+        <ErrorBoundary>
+            <App props={window.__DALWA_APP__} />
+        </ErrorBoundary>,
+    );
 }
 

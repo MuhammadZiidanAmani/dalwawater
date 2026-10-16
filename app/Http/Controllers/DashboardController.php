@@ -16,6 +16,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Services\DashboardMetrics;
 use Illuminate\Contracts\View\View;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,8 @@ class DashboardController extends Controller
         $filters = $request->validated();
 
         $selectedPage = $filters['page'] ?? 'dashboard';
+        $dataPage = (int) ($filters['data_page'] ?? 1);
+        $perPage = 25;
         $selectedReportScope = $filters['report_scope'] ?? 'month';
         $selectedPeriodMonth = $filters['period_month'] ?? Carbon::today()->format('Y-m');
         $periodStart = Carbon::createFromFormat('Y-m', $selectedPeriodMonth)->startOfMonth();
@@ -65,19 +68,32 @@ class DashboardController extends Controller
         $start = $hasDateRange ? Carbon::parse($startDate)->startOfDay() : Carbon::today()->startOfDay();
         $end = $hasDateRange ? Carbon::parse($endDate)->endOfDay() : Carbon::today()->endOfDay();
 
-        $products = Product::orderBy('nama_barang')->get();
-        $activeProducts = Product::where('status', 'active')->orderBy('nama_barang')->get();
-        $transactions = Transaction::visibleTo($request->user())
-            ->where('status', '!=', 'void')
-            ->with(['user', 'details.product'])
-            ->latest()
-            ->limit(15)
-            ->get();
-        $latestTransaction = Transaction::visibleTo($request->user())
-            ->where('status', '!=', 'void')
-            ->with(['user', 'details.product'])
-            ->latest()
-            ->first();
+        $productsPaginator = null;
+        $productQuery = Product::orderBy('nama_barang');
+        if (in_array($selectedPage, ['inventory', 'stock', 'stockin'], true)) {
+            $productsPaginator = $productQuery->paginate($perPage, ['*'], 'data_page', $dataPage);
+            $products = $productsPaginator->getCollection();
+        } elseif (in_array($selectedPage, [
+            'transactions', 'transaction-history', 'transaction-edit', 'product-create', 'product-edit',
+            'categories', 'category-create', 'category-edit', 'purchases', 'stock-purchase', 'stock-create', 'stock-edit', 'stock-opname',
+            'settings', 'cashiers',
+        ], true)) {
+            $products = $productQuery->get();
+        } else {
+            $products = collect();
+        }
+
+        $activeProducts = in_array($selectedPage, ['transactions', 'settings', 'cashiers'], true)
+            ? Product::where('status', 'active')->orderBy('nama_barang')->get()
+            : collect();
+        $transactions = $selectedPage === 'dashboard'
+            ? Transaction::visibleTo($request->user())
+                ->where('status', '!=', 'void')
+                ->with(['user', 'details.product'])
+                ->latest()
+                ->limit(15)
+                ->get()
+            : collect();
 
         $rangeTransactionsQuery = Transaction::visibleTo($request->user())
             ->where('status', '!=', 'void')
@@ -132,11 +148,13 @@ class DashboardController extends Controller
             $selectedReportScope === 'month' ? 'day' : 'month',
         );
 
-        $cashiers = User::whereIn('role', ['admin', 'cashier'])
-            ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())->where('status', '!=', 'void')->where('payment_status', 'paid')], 'total')
-            ->orderBy('role')
-            ->orderBy('name')
-            ->get();
+        $cashiers = in_array($selectedPage, ['settings', 'cashiers'], true)
+            ? User::whereIn('role', ['admin', 'cashier'])
+                ->withSum(['transactions as today_sales' => fn ($query) => $query->whereDate('created_at', Carbon::today())->where('status', '!=', 'void')->where('payment_status', 'paid')], 'total')
+                ->orderBy('role')
+                ->orderBy('name')
+                ->get()
+            : collect();
 
         $monthlyProductSales = Product::query()
             ->leftJoin('transaction_details', 'products.id', '=', 'transaction_details.product_id')
@@ -199,7 +217,6 @@ class DashboardController extends Controller
             'active_shifts' => CashierShift::open()->count(),
         ];
 
-        $reportQuery = Transaction::visibleTo($request->user())->with(['user', 'details.product'])->latest();
         $reportBaseQuery = Transaction::visibleTo($request->user())
             ->where('status', '!=', 'void');
 
@@ -207,41 +224,51 @@ class DashboardController extends Controller
             $start = Carbon::parse($startDate)->startOfDay();
             $end = Carbon::parse($endDate)->endOfDay();
 
-            $reportQuery->whereBetween('created_at', [$start, $end]);
             $reportBaseQuery->whereBetween('created_at', [$start, $end]);
         }
 
         if ($selectedUserId) {
-            $reportQuery->where('user_id', $selectedUserId);
             $reportBaseQuery->where('user_id', $selectedUserId);
         }
 
         if ($selectedPaymentStatus) {
-            $reportQuery->where('payment_status', $selectedPaymentStatus);
             $reportBaseQuery->where('payment_status', $selectedPaymentStatus);
         }
 
         if ($selectedPaymentType) {
-            $reportQuery->where('payment_type', $selectedPaymentType);
             $reportBaseQuery->where('payment_type', $selectedPaymentType);
         }
 
-        $reportTransactions = $reportQuery->get();
-        $stockEntries = StockIn::with('product')
-            ->orderByDesc('tanggal')
-            ->orderByDesc('id')
-            ->get();
-        $purchaseHistory = StockIn::with('product')
-            ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]))
-            ->orderByDesc('tanggal')
-            ->orderByDesc('id')
-            ->get();
-        $expenses = Expense::with('user')
-            ->when($hasDateRange, fn ($query) => $query->whereDate('spent_at', '>=', $startDate)->whereDate('spent_at', '<=', $endDate))
-            ->orderByDesc('spent_at')
-            ->orderByDesc('id')
-            ->get();
-        $expenseTotal = (int) $expenses->sum('amount');
+        $stockEntriesPaginator = null;
+        $stockEntries = collect();
+        if (in_array($selectedPage, ['purchases', 'stock-edit'], true)) {
+            $stockEntriesPaginator = StockIn::with('product')
+                ->orderByDesc('tanggal')
+                ->orderByDesc('id')
+                ->paginate($perPage, ['*'], 'data_page', $dataPage);
+            $stockEntries = $stockEntriesPaginator->getCollection();
+        }
+        $purchaseHistory = $selectedPage === 'purchase-history'
+            ? StockIn::with('product')
+                ->when($hasDateRange, fn ($query) => $query->whereBetween('tanggal', [$startDate, $endDate]))
+                ->orderByDesc('tanggal')
+                ->orderByDesc('id')
+                ->limit($perPage)
+                ->get()
+            : collect();
+
+        $expenseQuery = Expense::with('user')
+            ->when($hasDateRange, fn ($query) => $query->whereDate('spent_at', '>=', $startDate)->whereDate('spent_at', '<=', $endDate));
+        $expenseTotal = (int) (clone $expenseQuery)->sum('amount');
+        $expensesPaginator = null;
+        $expenses = collect();
+        if (in_array($selectedPage, ['operations', 'expense-create', 'expense-edit', 'history'], true)) {
+            $expensesPaginator = $expenseQuery
+                ->orderByDesc('spent_at')
+                ->orderByDesc('id')
+                ->paginate($perPage, ['*'], 'data_page', $dataPage);
+            $expenses = $expensesPaginator->getCollection();
+        }
         $reportPaidQuery = (clone $reportBaseQuery)->where('payment_status', 'paid');
         $reportPaidTransactions = (clone $reportPaidQuery)->count();
         $reportIncome = (int) (clone $reportPaidQuery)->sum('total');
@@ -285,34 +312,67 @@ class DashboardController extends Controller
             'cash_income' => (clone $reportBaseQuery)->where('payment_status', 'paid')->where('payment_type', 'cash')->sum('total'),
             'transfer_income' => (clone $reportBaseQuery)->where('payment_status', 'paid')->where('payment_type', 'transfer')->sum('total'),
             'pending_income' => (clone $reportBaseQuery)->where('payment_status', 'pending')->sum('total'),
-            'expense_count' => $expenses->count(),
+            'expense_count' => (clone $expenseQuery)->count(),
         ];
 
-        $categories = Category::all();
-        $suppliers = Supplier::orderBy('nama')->get();
+        $categories = in_array($selectedPage, [
+            'inventory', 'stock', 'stockin', 'categories', 'category-create', 'category-edit',
+            'product-create', 'product-edit',
+        ], true)
+            ? Category::orderBy('nama_kategori')->get()
+            : collect();
+        $suppliers = in_array($selectedPage, [
+            'suppliers', 'supplier-create', 'supplier-edit', 'purchases', 'stock-purchase', 'stock-create', 'stock-edit',
+        ], true)
+            ? Supplier::orderBy('nama')->get()
+            : collect();
         $currentShift = $request->user()->cashierShifts()
             ->open()
             ->latest('opened_at')
             ->first();
-        $recentShifts = $request->user()->isAdmin()
-            ? CashierShift::with('user')->latest('opened_at')->limit(10)->get()
-            : $request->user()->cashierShifts()->latest('opened_at')->limit(5)->get();
-        $stockOpnames = StockOpname::with(['user', 'adjustments.product'])->latest()->limit(10)->get();
-        $auditLogs = $request->user()->isAdmin()
-            ? AuditLog::with('user')->latest()->limit(20)->get()
+        $recentShifts = in_array($selectedPage, ['settings', 'cashiers'], true)
+            ? ($request->user()->isAdmin()
+                ? CashierShift::with('user')->latest('opened_at')->limit(10)->get()
+                : $request->user()->cashierShifts()->latest('opened_at')->limit(5)->get())
             : collect();
-        $approvalRequests = $request->user()->isAdmin()
-            ? ApprovalRequest::with(['requester', 'reviewer', 'subject'])->latest()->limit(100)->get()
-            : $request->user()->approvalRequests()->with(['reviewer', 'subject'])->latest()->limit(50)->get();
+        $stockOpnames = $selectedPage === 'stock-opname'
+            ? StockOpname::with(['user', 'adjustments.product'])->latest()->limit(25)->get()
+            : collect();
+
+        $auditLogsPaginator = null;
+        $auditLogs = collect();
+        if ($selectedPage === 'audit-login' && $request->user()->isAdmin()) {
+            $auditLogsPaginator = AuditLog::with('user')->latest()->paginate($perPage, ['*'], 'data_page', $dataPage);
+            $auditLogs = $auditLogsPaginator->getCollection();
+        }
+
+        $approvalRequestsPaginator = null;
+        if ($selectedPage === 'approvals') {
+            $approvalQuery = $request->user()->isAdmin()
+                ? ApprovalRequest::with(['requester', 'reviewer', 'subject'])->latest()
+                : $request->user()->approvalRequests()->with(['reviewer', 'subject'])->latest();
+            $approvalRequestsPaginator = $approvalQuery->paginate($perPage, ['*'], 'data_page', $dataPage);
+            $approvalRequests = $approvalRequestsPaginator->getCollection();
+        } else {
+            $approvalRequests = collect();
+        }
+
+        $historyTransactionsPaginator = null;
+        $historyTransactions = collect();
+        if (in_array($selectedPage, ['transaction-history', 'transaction-edit', 'history'], true)) {
+            $historyTransactionsPaginator = (clone $rangeTransactionsQuery)
+                ->with(['user', 'details.product'])
+                ->latest()
+                ->paginate($perPage, ['*'], 'data_page', $dataPage);
+            $historyTransactions = $historyTransactionsPaginator->getCollection();
+        }
 
         return view(auth()->user()->isAdmin() ? 'dashboard.admin' : 'dashboard.kasir', [
             'categories' => $categories,
             'suppliers' => $suppliers,
             'products' => $products,
             'activeProducts' => $activeProducts,
-            'stockIns' => StockIn::with('product')->latest()->limit(10)->get(),
             'transactions' => $transactions,
-            'latestTransaction' => $latestTransaction,
             'lowStockProducts' => $lowStockProducts,
             'salesChart' => $salesChart,
             'netProfitChart' => $netProfitChart,
@@ -327,10 +387,11 @@ class DashboardController extends Controller
             'selectedUserId' => $selectedUserId,
             'selectedPaymentStatus' => $selectedPaymentStatus,
             'selectedPaymentType' => $selectedPaymentType,
-            'reportTransactions' => $reportTransactions,
             'reportStats' => $reportStats,
-            'dashboardTransactions' => (clone $dashboardTransactionsQuery)->with(['user', 'details.product'])->latest()->get(),
-            'historyTransactions' => (clone $rangeTransactionsQuery)->with(['user', 'details.product'])->latest()->get(),
+            'dashboardTransactions' => $selectedPage === 'dashboard'
+                ? (clone $dashboardTransactionsQuery)->with(['user', 'details.product'])->latest()->limit(25)->get()
+                : collect(),
+            'historyTransactions' => $historyTransactions,
             'stockEntries' => $stockEntries,
             'purchaseHistory' => $purchaseHistory,
             'expenses' => $expenses,
@@ -339,7 +400,31 @@ class DashboardController extends Controller
             'stockOpnames' => $stockOpnames,
             'auditLogs' => $auditLogs,
             'approvalRequests' => $approvalRequests,
+            'pagination' => [
+                'products' => $this->paginationMeta($productsPaginator),
+                'stockEntries' => $this->paginationMeta($stockEntriesPaginator),
+                'historyTransactions' => $this->paginationMeta($historyTransactionsPaginator),
+                'expenses' => $this->paginationMeta($expensesPaginator),
+                'auditLogs' => $this->paginationMeta($auditLogsPaginator),
+                'approvalRequests' => $this->paginationMeta($approvalRequestsPaginator),
+            ],
         ]);
+    }
+
+    private function paginationMeta(?LengthAwarePaginator $paginator): ?array
+    {
+        if (! $paginator) {
+            return null;
+        }
+
+        return [
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+            'from' => $paginator->firstItem(),
+            'to' => $paginator->lastItem(),
+        ];
     }
 
     private function allReportPeriodStart(User $user): Carbon

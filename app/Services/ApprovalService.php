@@ -12,7 +12,9 @@ use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -23,20 +25,6 @@ class ApprovalService
 {
     public function submit(Request $request, Model $subject, string $action, array $payload = [], array $fileFields = []): ApprovalRequest
     {
-        $alreadyPending = ApprovalRequest::query()
-            ->where('requester_id', $request->user()->id)
-            ->where('subject_type', $subject->getMorphClass())
-            ->where('subject_id', $subject->getKey())
-            ->where('action', $action)
-            ->where('status', 'pending')
-            ->exists();
-
-        if ($alreadyPending) {
-            throw ValidationException::withMessages([
-                'approval' => 'Permintaan untuk data ini masih menunggu persetujuan admin.',
-            ]);
-        }
-
         $files = [];
         foreach ($fileFields as $field) {
             if (! $request->hasFile($field)) {
@@ -50,15 +38,38 @@ class ApprovalService
             ];
         }
 
-        $approval = ApprovalRequest::create([
-            'requester_id' => $request->user()->id,
-            'subject_type' => $subject->getMorphClass(),
-            'subject_id' => $subject->getKey(),
-            'action' => $action,
-            'payload' => $payload ?: null,
-            'files' => $files ?: null,
-            'status' => 'pending',
-        ]);
+        $pendingKey = hash('sha256', implode('|', [
+            $subject->getMorphClass(),
+            $subject->getKey(),
+            $action,
+        ]));
+
+        try {
+            $approval = ApprovalRequest::create([
+                'requester_id' => $request->user()->id,
+                'subject_type' => $subject->getMorphClass(),
+                'subject_id' => $subject->getKey(),
+                'subject_updated_at' => $subject->getAttribute('updated_at'),
+                'subject_fingerprint' => $this->subjectFingerprint($subject),
+                'action' => $action,
+                'payload' => $payload ?: null,
+                'files' => $files ?: null,
+                'status' => 'pending',
+                'pending_key' => $pendingKey,
+            ]);
+        } catch (QueryException $exception) {
+            foreach ($files as $file) {
+                Storage::disk('local')->delete($file['path']);
+            }
+
+            if (ApprovalRequest::where('pending_key', $pendingKey)->exists()) {
+                throw ValidationException::withMessages([
+                    'approval' => 'Permintaan untuk data ini masih menunggu persetujuan admin.',
+                ]);
+            }
+
+            throw $exception;
+        }
 
         AuditLog::record('approval.requested', $approval, [
             'action' => $action,
@@ -82,12 +93,23 @@ class ApprovalService
                 throw ValidationException::withMessages(['approval' => 'Data yang diminta sudah tidak tersedia.']);
             }
 
+            $subject = $subject->newQuery()->lockForUpdate()->find($subject->getKey());
+            if (! $subject || ! hash_equals(
+                (string) $lockedApproval->subject_fingerprint,
+                $this->subjectFingerprint($subject)
+            )) {
+                throw ValidationException::withMessages([
+                    'approval' => 'Data telah berubah setelah permintaan dibuat. Tolak permintaan ini dan ajukan ulang.',
+                ]);
+            }
+
             $this->execute($lockedApproval, $subject, $reviewer);
             $lockedApproval->update([
                 'status' => 'approved',
                 'reviewer_id' => $reviewer->id,
                 'review_notes' => $notes,
                 'reviewed_at' => now(),
+                'pending_key' => null,
             ]);
 
             AuditLog::record('approval.approved', $lockedApproval, [
@@ -114,6 +136,7 @@ class ApprovalService
                 'reviewer_id' => $reviewer->id,
                 'review_notes' => $notes,
                 'reviewed_at' => now(),
+                'pending_key' => null,
             ]);
 
             AuditLog::record('approval.rejected', $lockedApproval, ['action' => $lockedApproval->action]);
@@ -288,7 +311,10 @@ class ApprovalService
             $subtotal = max(0, $product->harga_jual - $lineDiscount) * $qty;
             $total += $subtotal;
             $discountTotal += $lineDiscount * $qty;
-            $newDetails[] = compact('product', 'qty', 'subtotal') + ['harga' => $product->harga_jual];
+            $newDetails[] = compact('product', 'qty', 'subtotal') + [
+                'harga' => $product->harga_jual,
+                'harga_modal' => $product->harga_modal,
+            ];
         }
 
         $paymentType = $data['payment_type'];
@@ -305,6 +331,7 @@ class ApprovalService
                 'product_id' => $detail['product']->id,
                 'qty' => $detail['qty'],
                 'harga' => $detail['harga'],
+                'harga_modal' => $detail['harga_modal'],
                 'subtotal' => $detail['subtotal'],
             ]);
             $detail['product']->decrement('stok', $detail['qty']);
@@ -348,5 +375,10 @@ class ApprovalService
         if (! $approval->isPending()) {
             throw ValidationException::withMessages(['approval' => 'Permintaan ini sudah diproses.']);
         }
+    }
+
+    private function subjectFingerprint(Model $subject): string
+    {
+        return hash('sha256', json_encode(Arr::sortRecursive($subject->getAttributes()), JSON_THROW_ON_ERROR));
     }
 }

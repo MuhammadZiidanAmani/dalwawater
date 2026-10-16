@@ -307,6 +307,7 @@
                 'qty' => (int) $product->qty,
                 'total' => (int) ($product->total ?? 0),
             ])->values(),
+            'pagination' => $pagination ?? [],
             'filters' => [
                 'period_month' => $selectedPeriodMonth ?? null,
                 'report_scope' => $selectedReportScope ?? null,

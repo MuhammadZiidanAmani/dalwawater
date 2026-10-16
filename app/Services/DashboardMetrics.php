@@ -15,7 +15,6 @@ class DashboardMetrics
     public function transactionProfit(Builder $transactionsQuery): int
     {
         return (int) DB::table('transaction_details')
-            ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->whereIn('transaction_details.transaction_id', (clone $transactionsQuery)->select('transactions.id'))
             ->sum(DB::raw($this->grossProfitExpression()));
     }
@@ -23,9 +22,8 @@ class DashboardMetrics
     public function transactionCapital(Builder $transactionsQuery): int
     {
         return (int) DB::table('transaction_details')
-            ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->whereIn('transaction_details.transaction_id', (clone $transactionsQuery)->select('transactions.id'))
-            ->sum(DB::raw('products.harga_modal * transaction_details.qty'));
+            ->sum(DB::raw('transaction_details.harga_modal * transaction_details.qty'));
     }
 
     public function purchaseTotal(Builder $stockInQuery): int
@@ -55,10 +53,9 @@ class DashboardMetrics
 
         $detailByDate = DB::table('transaction_details')
             ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
-            ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->whereIn('transactions.id', (clone $baseTransactions)->select('transactions.id'))
             ->selectRaw($detailPeriodExpression.' as date_key')
-            ->selectRaw('COALESCE(SUM(products.harga_modal * transaction_details.qty), 0) as capital')
+            ->selectRaw('COALESCE(SUM(transaction_details.harga_modal * transaction_details.qty), 0) as capital')
             ->selectRaw('COALESCE(SUM('.$this->grossProfitExpression().'), 0) as gross_profit')
             ->groupBy('date_key')
             ->get()
@@ -124,6 +121,6 @@ class DashboardMetrics
 
     private function grossProfitExpression(): string
     {
-        return 'CAST(transaction_details.subtotal AS SIGNED) - (CAST(products.harga_modal AS SIGNED) * CAST(transaction_details.qty AS SIGNED))';
+        return 'CAST(transaction_details.subtotal AS SIGNED) - (CAST(transaction_details.harga_modal AS SIGNED) * CAST(transaction_details.qty AS SIGNED))';
     }
 }

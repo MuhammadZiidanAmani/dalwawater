@@ -21,14 +21,20 @@ export function FormGrid({ className, ...props }: FormGridProps) {
     );
 }
 
-type FormStackProps = (React.HTMLAttributes<HTMLDivElement> | React.FormHTMLAttributes<HTMLFormElement>) & {
-    as?: 'div' | 'form';
-};
+type FormStackProps =
+    | ({ as?: 'div' } & React.HTMLAttributes<HTMLDivElement>)
+    | ({ as: 'form' } & React.FormHTMLAttributes<HTMLFormElement>);
 
-export function FormStack({ as = 'div', className, ...props }: FormStackProps) {
-    const Component = as;
+export function FormStack(props: FormStackProps) {
+    if (props.as === 'form') {
+        const { as: _as, className, ...formProps } = props;
 
-    return <Component className={cn('grid gap-4', controlStyles, className)} {...props} />;
+        return <form className={cn('grid gap-4', controlStyles, className)} {...formProps} />;
+    }
+
+    const { as: _as, className, ...divProps } = props;
+
+    return <div className={cn('grid gap-4', controlStyles, className)} {...divProps} />;
 }
 
 type FieldProps = React.HTMLAttributes<HTMLDivElement> & {

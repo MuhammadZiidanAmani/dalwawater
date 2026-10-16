@@ -20,13 +20,13 @@ return new class extends Migration
         // Migrate existing categories from products table
         $existingCategories = DB::table('products')->select('kategori')->distinct()->pluck('kategori');
         $now = now();
-        $insertData = $existingCategories->map(fn($cat) => [
+        $insertData = $existingCategories->map(fn ($cat) => [
             'nama_kategori' => $cat,
             'created_at' => $now,
             'updated_at' => $now,
         ])->toArray();
 
-        if (!empty($insertData)) {
+        if (! empty($insertData)) {
             DB::table('categories')->insert($insertData);
         }
     }

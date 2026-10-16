@@ -86,6 +86,7 @@ class TransactionController extends Controller
                     'product' => $product,
                     'qty' => $item['qty'],
                     'harga' => $product->harga_jual,
+                    'harga_modal' => $product->harga_modal,
                     'subtotal' => $subtotal,
                 ];
             }
@@ -126,6 +127,7 @@ class TransactionController extends Controller
                     'product_id' => $detail['product']->id,
                     'qty' => $detail['qty'],
                     'harga' => $detail['harga'],
+                    'harga_modal' => $detail['harga_modal'],
                     'subtotal' => $detail['subtotal'],
                 ]);
 
@@ -309,6 +311,7 @@ class TransactionController extends Controller
                     'product' => $product,
                     'qty' => $qty,
                     'harga' => $product->harga_jual,
+                    'harga_modal' => $product->harga_modal,
                     'subtotal' => $subtotal,
                 ];
             }
@@ -331,6 +334,7 @@ class TransactionController extends Controller
                     'product_id' => $detail['product']->id,
                     'qty' => $detail['qty'],
                     'harga' => $detail['harga'],
+                    'harga_modal' => $detail['harga_modal'],
                     'subtotal' => $detail['subtotal'],
                 ]);
 
@@ -374,7 +378,7 @@ class TransactionController extends Controller
                 'error' => $exception->getMessage(),
             ]);
 
-            return redirect()->back()->with('warning', 'Struk thermal gagal dicetak: '.$exception->getMessage());
+            return redirect()->back()->with('warning', 'Struk thermal gagal dicetak. Periksa koneksi dan konfigurasi printer.');
         }
     }
 

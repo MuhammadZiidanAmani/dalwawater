@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StockInRequest extends FormRequest
 {
@@ -41,6 +42,19 @@ class StockInRequest extends FormRequest
         ];
     }
 
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            $qty = max(0, (int) $this->input('qty', 0));
+            $price = max(0, (int) ($this->input('harga_beli') ?? $this->input('harga_modal', 0)));
+            $discount = max(0, (int) $this->input('discount_amount', 0));
+
+            if ($discount > ($qty * $price)) {
+                $validator->errors()->add('discount_amount', 'Diskon tidak boleh melebihi nilai pembelian.');
+            }
+        }];
+    }
+
     public function stockData(): array
     {
         $data = $this->validated();
@@ -49,7 +63,7 @@ class StockInRequest extends FormRequest
         $data['harga_jual'] = (int) ($data['harga_jual'] ?? 0);
         $data['discount_percent'] = (float) ($data['discount_percent'] ?? 0);
         $data['discount_amount'] = (int) ($data['discount_amount'] ?? 0);
-        $data['subtotal'] = (int) ($data['subtotal'] ?? max(0, ($data['harga_beli'] * $data['qty']) - $data['discount_amount']));
+        $data['subtotal'] = max(0, ($data['harga_beli'] * (int) $data['qty']) - $data['discount_amount']);
         $data['barcode'] = $data['barcode'] ?? $data['kode_barang'] ?? null;
 
         return $data;

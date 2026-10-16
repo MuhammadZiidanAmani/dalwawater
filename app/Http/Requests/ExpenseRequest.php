@@ -19,7 +19,6 @@ class ExpenseRequest extends FormRequest
             'volume' => ['required', 'numeric', 'min:0'],
             'unit' => ['required', 'string', 'max:50'],
             'price' => ['required', 'integer', 'min:0'],
-            'amount' => ['nullable', 'integer', 'min:0'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'attachment' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
         ];
@@ -32,7 +31,7 @@ class ExpenseRequest extends FormRequest
         $data['description'] = $data['uraian'];
         $data['volume'] = (float) $data['volume'];
         $data['price'] = (int) $data['price'];
-        $data['amount'] = (int) ($data['amount'] ?? round($data['volume'] * $data['price']));
+        $data['amount'] = (int) round($data['volume'] * $data['price']);
 
         return $data;
     }

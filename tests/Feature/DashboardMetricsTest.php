@@ -48,6 +48,7 @@ class DashboardMetricsTest extends TestCase
             'product_id' => $product->id,
             'qty' => 1,
             'harga' => 5000,
+            'harga_modal' => 7000,
             'subtotal' => 5000,
         ]);
 
@@ -66,5 +67,10 @@ class DashboardMetricsTest extends TestCase
             Carbon::parse('2026-06-15'),
             Carbon::parse('2026-06-15'),
         )->first()['gross_profit']);
+
+        $product->update(['harga_modal' => 1000]);
+
+        $this->assertSame(-2000, $metrics->transactionProfit(clone $transactions));
+        $this->assertSame(7000, $metrics->transactionCapital(clone $transactions));
     }
 }

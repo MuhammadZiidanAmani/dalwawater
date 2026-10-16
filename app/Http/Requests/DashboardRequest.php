@@ -15,6 +15,7 @@ class DashboardRequest extends FormRequest
     {
         return [
             'page' => ['nullable', 'string', 'max:80'],
+            'data_page' => ['nullable', 'integer', 'min:1'],
             'period_month' => ['nullable', 'date_format:Y-m'],
             'report_scope' => ['nullable', 'in:month,year,all'],
             'start_date' => ['nullable', 'date'],

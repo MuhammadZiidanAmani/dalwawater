@@ -17,6 +17,9 @@ class ApprovalRequest extends Model
         'payload',
         'files',
         'status',
+        'subject_updated_at',
+        'subject_fingerprint',
+        'pending_key',
         'review_notes',
         'reviewed_at',
     ];
@@ -26,6 +29,7 @@ class ApprovalRequest extends Model
         return [
             'payload' => 'array',
             'files' => 'array',
+            'subject_updated_at' => 'datetime',
             'reviewed_at' => 'datetime',
         ];
     }

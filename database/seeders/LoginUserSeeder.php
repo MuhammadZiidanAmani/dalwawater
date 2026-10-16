@@ -10,24 +10,29 @@ class LoginUserSeeder extends Seeder
 {
     public function run(): void
     {
-        User::updateOrCreate(
-            ['username' => 'admin'],
-            [
-                'name' => 'Admin Dalwa',
-                'email' => 'admin@dalwa-water.local',
-                'password' => Hash::make('password'),
-                'role' => 'admin',
-                'status' => 'active',
-            ]
-        );
+        $this->createFromEnvironment('admin');
+        $this->createFromEnvironment('cashier');
+    }
 
-        User::updateOrCreate(
-            ['username' => 'kasir'],
+    private function createFromEnvironment(string $role): void
+    {
+        $prefix = strtoupper($role);
+        $username = env("SEED_{$prefix}_USERNAME");
+        $password = env("SEED_{$prefix}_PASSWORD");
+
+        if (! is_string($username) || $username === '' || ! is_string($password) || $password === '') {
+            $this->command?->warn("Akun {$role} tidak dibuat karena kredensial SEED_{$prefix}_* tidak diisi.");
+
+            return;
+        }
+
+        User::firstOrCreate(
+            ['username' => $username],
             [
-                'name' => 'Kasir Dalwa',
-                'email' => 'kasir@dalwa-water.local',
-                'password' => Hash::make('password'),
-                'role' => 'cashier',
+                'name' => env("SEED_{$prefix}_NAME", ucfirst($role).' Dalwa'),
+                'email' => env("SEED_{$prefix}_EMAIL", $username.'@dalwa-water.local'),
+                'password' => Hash::make($password),
+                'role' => $role,
                 'status' => 'active',
             ]
         );

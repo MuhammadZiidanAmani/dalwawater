@@ -14,6 +14,7 @@ class TransactionDetail extends Model
         'product_id',
         'qty',
         'harga',
+        'harga_modal',
         'subtotal',
     ];
 
@@ -22,6 +23,7 @@ class TransactionDetail extends Model
         return [
             'qty' => 'integer',
             'harga' => 'integer',
+            'harga_modal' => 'integer',
             'subtotal' => 'integer',
         ];
     }

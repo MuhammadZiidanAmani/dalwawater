@@ -1,58 +1,71 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Dalwa Water
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Aplikasi transaksi, stok, pembelian, pengeluaran, laporan, approval, dan cetak nota Dalwa Water.
 
-## About Laravel
+## Kebutuhan Server
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP sesuai batas versi pada `composer.json`, beserta ekstensi PDO, Mbstring, OpenSSL, GD, dan Intl.
+- MySQL/MariaDB, Composer, Node.js, npm, dan web server dengan HTTPS.
+- Worker queue Laravel yang dijalankan oleh process manager.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Pemeriksaan Sebelum Deploy
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install --no-dev --prefer-dist --optimize-autoloader
+composer audit
+npm ci
+npm audit
+npm run typecheck
+npm run build
+php artisan test
+vendor/bin/pint --test
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Jalankan migrasi fresh hanya pada database testing, bukan database produksi.
 
-## Contributing
+## Deploy Produksi
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+1. Salin `.env.example` menjadi `.env`, isi database dan domain HTTPS, lalu jalankan `php artisan key:generate` hanya untuk instalasi baru.
+2. Pastikan `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL` memakai HTTPS, `SESSION_ENCRYPT=true`, dan `SESSION_SECURE_COOKIE=true`.
+3. Cadangkan database dan folder `storage/app` sebelum mengganti rilis.
+4. Jalankan perintah berikut dari direktori rilis:
 
-## Code of Conduct
+```bash
+php artisan down --retry=60
+composer install --no-dev --prefer-dist --optimize-autoloader
+npm ci
+npm run typecheck
+npm run build
+php artisan migrate --force
+php artisan optimize
+php artisan queue:restart
+php artisan up
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+5. Periksa `/up`, login admin, login kasir, transaksi uji, approval, laporan, dan preview nota.
 
-## Security Vulnerabilities
+Untuk instalasi kosong, akun awal hanya dibuat jika variabel `SEED_ADMIN_*` atau `SEED_CASHIER_*` diisi sebelum `php artisan db:seed --force`. Seeder memakai `firstOrCreate`, sehingga akun yang sudah ada dan password-nya tidak pernah direset. Kosongkan kembali variabel password setelah seeding.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Backup
 
-## License
+Simpan backup terenkripsi di lokasi berbeda dari server aplikasi. Contoh MySQL:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+mysqldump --single-transaction --routines --triggers -u USER -p DATABASE > dalwa-water.sql
+```
+
+Cadangkan juga `storage/app`, `.env` melalui secret manager, dan catat commit/rilis aktif. Uji pemulihan backup secara berkala pada lingkungan terpisah.
+
+## Rollback
+
+1. Aktifkan maintenance mode dan hentikan worker queue.
+2. Kembalikan kode ke rilis sebelumnya.
+3. Pulihkan database dari backup jika migrasi baru sudah berjalan. Jangan memakai `migrate:rollback` sebagai pengganti backup untuk data produksi.
+4. Jalankan `composer install`, `npm ci`, `npm run build`, `php artisan optimize`, lalu hidupkan worker dan aplikasi.
+5. Ulangi smoke test admin, kasir, transaksi, dan nota.
+
+## Cetak Nota
+
+- Android Bluetooth: gunakan RawBT untuk teks thermal 58mm.
+- Browser desktop atau ponsel: dialog cetak memakai printer yang terhubung ke perangkat. Pilih ukuran kertas yang sesuai driver printer.
+- Server production tidak dapat mengakses printer USB/Bluetooth milik pengguna secara langsung. Print agent lokal bersifat opsional dan tidak mengubah alur RawBT atau cetak browser.
